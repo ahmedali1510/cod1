@@ -38,6 +38,13 @@ google = oauth.register(
     client_kwargs={'scope': 'openid email profile'}
 )
 
+# --- إعدادات Paymob الفعلية (Live) من ملف .env ---
+PAYMOB_PUBLIC_KEY = os.environ.get("PAYMOB_PUBLIC_KEY")
+PAYMOB_API_KEY = os.environ.get("PAYMOB_API_KEY")
+PAYMOB_HMAC_KEY = os.environ.get("PAYMOB_HMAC_KEY")
+PAYMOB_INTEGRATION_ID = os.environ.get("PAYMOB_INTEGRATION_ID")
+PAYMOB_IFRAME_ID = os.environ.get("PAYMOB_IFRAME_ID")
+
 # --- نماذج قاعدة البيانات (Models) ---
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -108,7 +115,6 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anything Shop - متجر احترافي</title>
-    <!-- أيقونة الموقع 3D أصفر في أزرق -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='yg' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23fff200'/><stop offset='100%' stop-color='%23ff9900'/></linearGradient><linearGradient id='bg' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23131921'/><stop offset='100%' stop-color='%23232f3e'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23bg)'/><path d='M50 18 L78 75 L63 75 L50 42 L37 75 L22 75 Z' fill='url(%23yg)' filter='drop-shadow(2px 4px 6px rgba(0,0,0,0.5))'/><polygon points='50,30 58,55 42,55' fill='%23131921'/></svg>">
     <style>
         :root {
@@ -126,23 +132,12 @@ HTML_TEMPLATE = """
         .logo { font-size:20px; font-weight:bold; color: var(--primary-color); text-decoration:none; white-space:nowrap; display: flex; align-items: center; gap: 8px; }
         
         .logo-3d {
-            width: 36px;
-            height: 36px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #131921, #232f3e);
-            border-radius: 8px;
+            width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, #131921, #232f3e); border-radius: 8px;
             box-shadow: 0 3px 6px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.2);
-            position: relative;
-            overflow: hidden;
-            border: 1px solid #37475a;
+            position: relative; overflow: hidden; border: 1px solid #37475a;
         }
-        .logo-3d svg {
-            width: 28px;
-            height: 28px;
-            filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.6));
-        }
+        .logo-3d svg { width: 28px; height: 28px; filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.6)); }
         
         .search-bar { flex-grow:1; max-width:500px; display:flex; min-width: 200px; }
         .search-bar input { width:100%; padding:8px 10px; border:none; border-radius:0 4px 4px 0; font-size:13px; outline:none; }
@@ -153,18 +148,8 @@ HTML_TEMPLATE = """
         .admin-btn { background: var(--primary-color); color:black; }
         
         .badge-notification {
-            position: absolute;
-            top: -6px;
-            right: -6px;
-            background-color: #ff3b30;
-            color: white;
-            border-radius: 50%;
-            padding: 2px 5px;
-            font-size: 10px;
-            font-weight: bold;
-            display: inline-block;
-            min-width: 15px;
-            text-align: center;
+            position: absolute; top: -6px; right: -6px; background-color: #ff3b30; color: white;
+            border-radius: 50%; padding: 2px 5px; font-size: 10px; font-weight: bold; display: inline-block; min-width: 15px; text-align: center;
             box-shadow: 0 2px 5px rgba(0,0,0,0.3);
         }
 
@@ -207,7 +192,6 @@ HTML_TEMPLATE = """
         
         .admin-grid { display:grid; grid-template-columns: 1fr 1fr; gap:15px; }
         
-        /* لوحة التحكم والتشات */
         .live-chat-admin-container { display: flex; height: 500px; background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 15px; margin-bottom: 20px; }
         .chat-sidebar { width: 260px; background: #f8f9fa; border-left: 1px solid #ddd; overflow-y: auto; }
         .chat-sidebar h4 { padding: 12px; margin: 0; background: #232f3e; color: #fff; font-size: 13px; }
@@ -222,12 +206,10 @@ HTML_TEMPLATE = """
         .admin-reply-box input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 12px; }
         .admin-reply-box button { padding: 7px 14px; background: #0084ff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; }
 
-        /* زر الشات العائم للعميل */
         .chat-widget-btn { position: fixed; bottom: 20px; left: 20px; background: var(--primary-color); color: #000; width: 52px; height: 52px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; z-index: 999; font-weight: bold; text-decoration: none; border: 2px solid white; transition: transform 0.2s; font-size: 18px; }
         .chat-widget-btn:hover { transform: scale(1.08); }
         .chat-widget-btn span { font-size: 9px; margin-top: 1px; }
         
-        /* نافذة الشات المنبثقة للعميل */
         .chat-popup { position: fixed; bottom: 82px; left: 15px; width: 320px; max-width: calc(100vw - 30px); height: 400px; background: white; border-radius: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.2); z-index: 1000; display: none; flex-direction: column; overflow: hidden; border: 1px solid #ccc; }
         .chat-header { background: var(--header-bg); color: white; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 13px; }
         .chat-header button { background: none; border: none; color: white; font-size: 15px; cursor: pointer; }
@@ -241,7 +223,6 @@ HTML_TEMPLATE = """
         .chat-footer input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 11px; }
         .chat-footer button { background: #0084ff; color: #fff; border: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; }
         
-        /* الفوتر */
         footer { background: var(--header-bg); color:white; padding:20px 15px; margin-top:30px; border-top:3px solid var(--primary-color); text-align:center; }
         .footer-content { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; align-items: center; }
         .footer-support { background: #232f3e; border: 1px solid #37475a; padding: 12px 20px; border-radius: 8px; width: 100%; box-sizing: border-box; }
@@ -436,12 +417,12 @@ HTML_TEMPLATE = """
             </div>
             
             <div class="checkout-form">
-                <h3>تفاصيل الشحن والتسليم</h3>
+                <h3>تفاصيل الشحن والتسليم والدفع الفعلي عبر Paymob</h3>
                 <form action="/checkout" method="POST">
                     <div class="form-group"><label>رقم الهاتف للتواصل</label><input type="tel" name="phone" value="{{ current_user.phone or '' }}" required></div>
                     <div class="form-group"><label>عنوان التوصيل بالكامل</label><textarea name="address" rows="2" required>{{ current_user.address or '' }}</textarea></div>
-                    <div class="form-group"><label>طريقة الدفع</label><select name="payment_method" required><option value="Cash">الدفع عند الاستلام (كاش)</option><option value="Paymob">الدفع الإلكتروني الآمن عبر Paymob</option></select></div>
-                    <button type="submit" class="btn-submit">تأكيد ومتابعة الطلب</button>
+                    <div class="form-group"><label>طريقة الدفع</label><select name="payment_method" required><option value="Cash">الدفع عند الاستلام (كاش)</option><option value="Paymob">الدفع الإلكتروني الآمن عبر Paymob (بطاقات/محافظ)</option></select></div>
+                    <button type="submit" class="btn-submit">تأكيد ومتابعة الطلب والدفع</button>
                 </form>
             </div>
         {% else %}
@@ -602,13 +583,11 @@ HTML_TEMPLATE = """
     {% endif %}
 </div>
 
-<!-- زر الشات العائم للعميل -->
 <div id="support-chat-btn" class="chat-widget-btn">
     💬
     <span>الدعم</span>
 </div>
 
-<!-- نافذة محادثة ودعم العملاء المنبثقة مع التحقق من تسجيل الدخول والبيانات -->
 <div id="support-chat-window" class="chat-popup">
     <div class="chat-header">
         <span>الدعم الفني المباشر</span>
@@ -877,7 +856,6 @@ def api_chat_send():
         client_email = request.form.get("client_email", "").strip()
         client_phone = request.form.get("client_phone", "").strip()
 
-        # التحقق من تسجيل الدخول أو إدخال البريد والهاتف إلزاميًا
         if not current_user.is_authenticated and (not client_email or not client_phone):
             return jsonify({"status": "error", "message": "البريد الإلكتروني ورقم الهاتف إلزاميان للبدء."})
 
@@ -886,12 +864,8 @@ def api_chat_send():
             client_phone = current_user.phone
 
         msg = SupportMessage(
-            session_id=session_id, 
-            sender_type="client", 
-            message=message, 
-            client_email=client_email, 
-            client_phone=client_phone, 
-            is_read=False
+            session_id=session_id, sender_type="client", message=message, 
+            client_email=client_email, client_phone=client_phone, is_read=False
         )
         db.session.add(msg)
         db.session.commit()
@@ -1012,12 +986,16 @@ def view_cart():
         cart_count=get_cart_count(), categories_list=get_categories(), current_cat="Cart", settings=settings
     )
 
+# --- مسار الدفع وتكامل Paymob الفعلي (Live API) ---
 @app.route("/checkout", methods=["POST"])
 @login_required
 def checkout():
-    phone, address, payment_method = request.form.get("phone"), request.form.get("address"), request.form.get("payment_method")
+    phone = request.form.get("phone")
+    address = request.form.get("address")
+    payment_method = request.form.get("payment_method")
     cart = session.get('cart', {})
-    if not cart: return redirect(url_for('home'))
+    if not cart: 
+        return redirect(url_for('home'))
 
     order_items, items_price = [], 0.0
     for p_id_str, qty in cart.items():
@@ -1033,19 +1011,120 @@ def checkout():
     settings = get_settings()
     total_price = (items_price - discount_amount) + settings.shipping_fee
 
+    # إنشاء الأوردر في قاعدة البيانات بحالة معلقة (Pending)
     new_order = Order(
         user_id=current_user.id, phone=phone, address=address, payment_method=payment_method,
-        payment_status='Pending' if payment_method == 'Paymob' else 'Cash on Delivery',
-        items_price=items_price, discount_amount=discount_amount, shipping_fee=settings.shipping_fee, 
-        total_price=total_price, items_json=json.dumps(order_items), is_read=False
+        payment_status='Pending', items_price=items_price, discount_amount=discount_amount, 
+        shipping_fee=settings.shipping_fee, total_price=total_price, items_json=json.dumps(order_items), is_read=False
     )
     db.session.add(new_order)
     db.session.commit()
     
+    # في حالة اختيار الدفع الإلكتروني عبر Paymob الفعلي
+    if payment_method == 'Paymob':
+        try:
+            # الخطوة 1: طلب مفتاح المصادقة (Auth Token) الفعلي من Paymob
+            auth_res = requests.post("https://accept.paymob.com/api/auth/tokens", json={"api_key": PAYMOB_API_KEY})
+            auth_data = auth_res.json()
+            token = auth_data.get("token")
+            
+            if not token:
+                flash("فشل الاتصال ببوابة الدفع Paymob (خطأ في المصادقة).")
+                return redirect(url_for('view_cart'))
+
+            # الخطوة 2: تسجيل طلب داخل نظام Paymob (Order Registration API)
+            amount_cents = int(total_price * 100) # القيمة بالقرش المصري
+            order_payload = {
+                "auth_token": token,
+                "delivery_needed": "false",
+                "amount_cents": str(amount_cents),
+                "currency": "EGP",
+                "merchant_order_id": str(new_order.id),
+                "items": []
+            }
+            order_res = requests.post("https://accept.paymob.com/api/ecommerce/orders", json=order_payload)
+            paymob_order_data = order_res.json()
+            paymob_order_id = paymob_order_data.get("id")
+
+            if not paymob_order_id:
+                flash("فشل إنشاء تفاصيل الطلب على Paymob.")
+                return redirect(url_for('view_cart'))
+
+            # الخطوة 3: طلب مفتاح الدفع (Payment Key Request)
+            name_parts = current_user.first_name.split()
+            first_name = name_parts[0] if name_parts else "Client"
+            last_name = current_user.last_name if current_user.last_name else "User"
+
+            billing_data = {
+                "apartment": "NA",
+                "email": current_user.email,
+                "floor": "NA",
+                "first_name": first_name,
+                "street": address[:50],
+                "building": "NA",
+                "phone_number": phone,
+                "shipping_method": "PKG",
+                "postal_code": "NA",
+                "city": "Cairo",
+                "country": "EGY",
+                "last_name": last_name,
+                "state": "Cairo"
+            }
+
+            payment_key_payload = {
+                "auth_token": token,
+                "amount_cents": str(amount_cents),
+                "expiration": 3600,
+                "order_id": paymob_order_id,
+                "billing_data": billing_data,
+                "currency": "EGP",
+                "integration_id": int(PAYMOB_INTEGRATION_ID)
+            }
+
+            pay_key_res = requests.post("https://accept.paymob.com/api/acceptance/payment_keys", json=payment_key_payload)
+            pay_key_data = pay_key_res.json()
+            payment_token = pay_key_data.get("token")
+
+            if not payment_token:
+                flash("فشل استخراج مفتاح الدفع الفعلي من Paymob.")
+                return redirect(url_for('view_cart'))
+
+            # تفريغ السلة وتوجيه المستخدم لصفحة الدفع iframe الفعلية من Paymob
+            session['cart'] = {}
+            session.pop('applied_coupon', None)
+
+            iframe_url = f"https://accept.paymob.com/api/acceptance/iframes/{PAYMOB_IFRAME_ID}?payment_token={payment_token}"
+            return redirect(iframe_url)
+
+        except Exception as e:
+            flash(f"حدث خطأ أثناء التواصل مع Paymob: {str(e)}")
+            return redirect(url_for('view_cart'))
+
+    # في حالة الدفع العادي عند الاستلام
     session['cart'] = {}
     session.pop('applied_coupon', None)
-
     flash("تم تسجيل طلبك بنجاح!")
+    return redirect(url_for('my_orders'))
+
+# --- مسار استقبال الرد والتحقق من نجاح الدفع من Paymob ---
+@app.route("/paymob/callback", methods=["GET"])
+def paymob_callback():
+    data = request.args.to_dict()
+    success = data.get("success")
+    merchant_order_id = data.get("merchant_order_id")
+
+    if merchant_order_id:
+        order = Order.query.get(int(merchant_order_id))
+        if order:
+            if success == "true":
+                order.payment_status = "Paid"
+                db.session.commit()
+                flash("تم الدفع الإلكتروني بنجاح عبر Paymob وتم تأكيد طلبك!")
+            else:
+                order.payment_status = "Failed"
+                db.session.commit()
+                flash("فشلت عملية الدفع الإلكتروني عبر Paymob.")
+
     return redirect(url_for('my_orders'))
 
 @app.route("/login/google")
@@ -1100,8 +1179,6 @@ def admin_panel():
     chat_sessions = []
     for s in raw_sessions:
         unread_cnt = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client', is_read=False).count()
-        
-        # استخراج بيانات العميل (البريد والهاتف) الخاصة بهذه الجلسة إن وجدت لتجنب أخطاء العرض
         first_msg = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client').first()
         c_email = first_msg.client_email if first_msg and first_msg.client_email else "زائر عام"
         c_phone = first_msg.client_phone if first_msg and first_msg.client_phone else ""
@@ -1165,84 +1242,4 @@ def admin_edit_product(prod_id):
         prod.price = float(request.form.get("price"))
         prod.category = request.form.get("category")
         
-        image_url = request.form.get("image")
-        image_file = request.files.get('image_file')
-        if image_file and image_file.filename != '':
-            filename = datetime.now().strftime("%Y%m%d%H%M%S_") + image_file.filename
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            image_file.save(filepath)
-            image_url = f"/{filepath}"
-            
-        prod.image = image_url
-        db.session.commit()
-        flash("تم تعديل المنتج بنجاح!")
-        return redirect(url_for('admin_panel'))
-    return render_template_string(HTML_TEMPLATE, page='edit_product', edit_prod=prod, cart_count=get_cart_count(), categories_list=get_categories(), settings=get_settings())
-
-@app.route("/admin/delete-product/<int:prod_id>")
-@login_required
-def admin_delete_product(prod_id):
-    if not current_user.is_admin: return redirect(url_for('home'))
-    db.session.delete(Product.query.get_or_404(prod_id))
-    db.session.commit()
-    flash("تم حذف المنتج بنجاح.")
-    return redirect(url_for('admin_panel'))
-
-@app.route("/admin/update-settings", methods=["POST"])
-@login_required
-def admin_update_settings():
-    if not current_user.is_admin: return redirect(url_for('home'))
-    settings = get_settings()
-    settings.header_color, settings.primary_color, settings.price_color = request.form.get("header_color"), request.form.get("primary_color"), request.form.get("price_color")
-    settings.bg_color, settings.font_size, settings.shipping_fee = request.form.get("bg_color"), int(request.form.get("font_size")), float(request.form.get("shipping_fee"))
-    db.session.commit()
-    flash("تم تحديث إعدادات التصميم بنجاح!")
-    return redirect(url_for('admin_panel'))
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
-        user = User.query.filter_by(email=email).first()
-        
-        if user and user.password_hash and check_password_hash(user.password_hash, password):
-            login_user(user)
-            return redirect(url_for('admin_panel' if user.is_admin else 'home'))
-        
-        flash("بيانات الدخول غير صحيحة.")
-    return render_template_string(HTML_TEMPLATE, page='login', cart_count=get_cart_count(), categories_list=get_categories(), settings=get_settings())
-
-@app.route("/logout")
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('home'))
-
-def seed_data():
-    if Product.query.count() == 0:
-        db.session.add_all([
-            Product(name="لبانة نعناع نكهة ممتازة", price=0.50, category="مأكولات ومشروبات", image="https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?w=400"),
-            Product(name="حذاء رياضي Pro", price=450.0, category="أحذية", image="https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"),
-            Product(name="سماعة لاسلكية Bluetooth", price=650.0, category="إلكترونيات", image="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400")
-        ])
-        db.session.commit()
-    
-    admin_user = User.query.filter_by(email="admin@shop.com").first()
-    if not admin_user:
-        db.session.add(User(
-            first_name="أحمد", last_name="الأدمن", email="admin@shop.com", 
-            password_hash=generate_password_hash("admin123", method='scrypt'), 
-            is_admin=True, phone="01000000000", address="القاهرة", birth_date="2000-01-01"
-        ))
-        db.session.commit()
-    else:
-        admin_user.is_admin = True
-        db.session.commit()
-
-with app.app_context():
-    db.create_all()
-    seed_data()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+        image_url = request.form.get
