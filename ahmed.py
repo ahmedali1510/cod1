@@ -85,6 +85,7 @@ class Order(db.Model):
     payment_status = db.Column(db.String(50), default='Pending')
     items_price = db.Column(db.Float, nullable=False)
     shipping_fee = db.Column(db.Float, nullable=False, default=50.0)
+    discount_amount = db.Column(db.Float, nullable=False, default=0.0)
     total_price = db.Column(db.Float, nullable=False)
     items_json = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -155,6 +156,10 @@ HTML_TEMPLATE = """
         .nav-categories a { color: var(--icon-color); text-decoration:none; font-weight:500; font-size:13px; padding:4px 8px; border-radius:3px; }
         .nav-categories a:hover, .nav-categories a.active { background:#37475a; color: var(--primary-color); }
         
+        .welcome-banner { background: linear-gradient(135deg, #232f3e, #37475a); color: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .welcome-banner h3 { margin: 0; color: var(--primary-color); font-size: 18px; }
+        .welcome-banner p { margin: 5px 0 0; font-size: 13px; color: #ddd; }
+
         .container { max-width:1300px; margin:15px auto; padding:0 10px; min-height:75vh; }
         .products-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:15px; }
         .card { background: var(--card-bg); border:1px solid #e7e7e7; border-radius:8px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; }
@@ -275,6 +280,13 @@ HTML_TEMPLATE = """
     {% endwith %}
 
     {% if page == 'home' or page == 'search' or page == 'category' %}
+        <div class="welcome-banner">
+            <div>
+                <h3>أهلاً بك في متجر Anything Shop التجاري المتكامل!</h3>
+                <p>استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب خصم 10% باستخدام كود الخصم (أي حاجة شوب).</p>
+            </div>
+        </div>
+
         <h2>{{ 'نتائج البحث عن: ' ~ search_query if page == 'search' else ('منتجات قسم: ' ~ current_cat if page == 'category' else 'المنتجات المتاحة') }}</h2>
         {% if products %}
             <div class="products-grid">
@@ -354,16 +366,40 @@ HTML_TEMPLATE = """
                     {% endfor %}
                 </tbody>
             </table>
+            
+            <!-- قسم تفعيل كود الخصم (أي حاجة شوب) للعميل -->
+            <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+                <form action="/apply-coupon" method="POST" style="display:flex; gap:10px; align-items:center;">
+                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم (مثال: أي حاجة شوب)" value="{{ session.get('applied_coupon', '') }}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                    <button type="submit" style="background:#232f3e; color:#fff; border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">تطبيق الكود</button>
+                </form>
+                {% if session.get('applied_coupon') == 'أي حاجة شوب' %}
+                    <p style="color: green; margin-top: 8px; font-weight: bold; font-size: 13px;">✅ تم تطبيق خصم العرض الأول (10%) بنجاح!</p>
+                {% endif %}
+            </div>
+
             <div style="text-align:left; background:var(--card-bg); padding:12px; border-radius:8px; margin-bottom:15px;">
+                <p>إجمالي المنتجات: {{ "%.2f"|format(total_price) }} ج.م</p>
+                {% if discount_amount > 0 %}
+                    <p style="color: green;">قيمة الخصم (10%): -{{ "%.2f"|format(discount_amount) }} ج.م</p>
+                {% endif %}
                 <p>مصاريف الشحن: <strong>{{ "%.2f"|format(settings.shipping_fee) }} ج.م</strong></p>
                 <h3 style="color: var(--price-color);">الإجمالي النهائي: {{ "%.2f"|format(final_total) }} ج.م</h3>
             </div>
+            
             <div class="checkout-form">
                 <h3>تفاصيل الشحن والتسليم</h3>
                 <form action="/checkout" method="POST">
                     <div class="form-group"><label>رقم الهاتف للتواصل</label><input type="tel" name="phone" value="{{ current_user.phone or '' }}" required></div>
                     <div class="form-group"><label>عنوان التوصيل بالكامل</label><textarea name="address" rows="2" required>{{ current_user.address or '' }}</textarea></div>
-                    <div class="form-group"><label>طريقة الدفع</label><select name="payment_method" required><option value="Cash">الدفع عند الاستلام (كاش)</option></select></div>
+                    <div class="form-group">
+                        <label>طريقة الدفع</label>
+                        <select name="payment_method" required>
+                            <option value="الدفع عند الاستلام (كاش)">الدفع عند الاستلام (كاش)</option>
+                            <option value="بطاقة ائتمان (فيزا)">بطاقة ائتمان (فيزا)</option>
+                            <option value="محفظة إلكترونية (فودافون كاش / إنستاباي)">محفظة إلكترونية (فودافون كاش / إنستاباي)</option>
+                        </select>
+                    </div>
                     <button type="submit" class="btn-submit">تأكيد ومتابعة الطلب</button>
                 </form>
             </div>
@@ -372,12 +408,17 @@ HTML_TEMPLATE = """
         {% endif %}
 
     {% elif page == 'orders' %}
-        <h2>طلباتي</h2>
+        <h2>طلباتي السابقة</h2>
         {% for order in orders %}
-            <div style="background:var(--card-bg); padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+            <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
                 <h4>طلب رقم #{{ order.id }} - {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</h4>
+                <p><strong>طريقة الدفع:</strong> {{ order.payment_method }}</p>
                 <p><strong>حالة الدفع:</strong> {{ order.payment_status }}</p>
+                <p><strong>رقم الهاتف:</strong> {{ order.phone }}</p>
                 <p><strong>العنوان:</strong> {{ order.address }}</p>
+                {% if order.discount_amount > 0 %}
+                    <p><strong>الخصم المطبق:</strong> {{ "%.2f"|format(order.discount_amount) }} ج.م</p>
+                {% endif %}
                 <h3 style="color: var(--price-color);">المبلغ الإجمالي: {{ "%.2f"|format(order.total_price) }} ج.م</h3>
             </div>
         {% endfor %}
@@ -431,18 +472,19 @@ HTML_TEMPLATE = """
 
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-orders')">
-                <span>📦 إدارة الأوردرات (إجمالي: {{ total_orders_count }})</span>
+                <span>📦 إدارة الأوردرات وتفاصيل الدفع (إجمالي: {{ total_orders_count }})</span>
                 <span>▼</span>
             </div>
             <div id="sec-orders" class="admin-section-content">
                 <table class="admin-table">
-                    <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
+                    <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>طريقة الدفع</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
                     <tbody>
                         {% for ord in paged_orders %}
                         <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
                             <td>#{{ ord.id }}</td>
                             <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
                             <td>{{ ord.phone }}</td>
+                            <td><span style="background: #e2e8f0; padding: 3px 6px; border-radius: 4px; font-weight: bold;">{{ ord.payment_method }}</span></td>
                             <td>{{ ord.address }}</td>
                             <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
                             <td>{{ ord.payment_status }}</td>
@@ -523,7 +565,6 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- قسم التحكم الشامل في الألوان والأيقونات والديزاين -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-design')">
                 <span>🎨 التحكم الكامل في ألوان الديزاين، الأيقونات، والشعار</span>
@@ -888,6 +929,17 @@ def add_to_cart():
     flash("تمت الإضافة للسلة!")
     return redirect(request.referrer or url_for('home'))
 
+@app.route("/apply-coupon", methods=["POST"])
+def apply_coupon():
+    code = request.form.get("coupon_code", "").strip()
+    if code == "أي حاجة شوب":
+        session['applied_coupon'] = "أي حاجة شوب"
+        flash("تم تطبيق كود الخصم (أي حاجة شوب) بنجاح!")
+    else:
+        session.pop('applied_coupon', None)
+        flash("كود الخصم غير صحيح.")
+    return redirect(url_for('view_cart'))
+
 @app.route("/cart")
 def view_cart():
     cart = session.get('cart', {})
@@ -897,30 +949,54 @@ def view_cart():
         if product:
             total_price += product.price * qty
             cart_items.append({"name": product.name, "price": product.price, "qty": qty})
+    
     settings = get_settings()
-    final_total = total_price + settings.shipping_fee
-    return render_template_string(HTML_TEMPLATE, page='cart', cart_items=cart_items, total_price=total_price, final_total=final_total, cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Cart", settings=settings)
+    discount_amount = 0.0
+    if session.get('applied_coupon') == "أي حاجة شوب":
+        discount_amount = total_price * 0.10
+    
+    final_total = (total_price - discount_amount) + settings.shipping_fee
+    if final_total < 0: final_total = 0.0
+
+    return render_template_string(
+        HTML_TEMPLATE, page='cart', cart_items=cart_items, total_price=total_price, 
+        discount_amount=discount_amount, final_total=final_total, 
+        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Cart", settings=settings
+    )
 
 @app.route("/checkout", methods=["POST"])
 @login_required
 def checkout():
     cart = session.get('cart', {})
     if not cart: return redirect(url_for('home'))
+    
     order_items, items_price = [], 0.0
     for p_id_str, qty in cart.items():
         product = Product.query.get(int(p_id_str))
         if product:
             items_price += product.price * qty
             order_items.append({"name": product.name, "price": product.price, "qty": qty})
+            
     settings = get_settings()
+    discount_amount = 0.0
+    if session.get('applied_coupon') == "أي حاجة شوب":
+        discount_amount = items_price * 0.10
+
+    total_price = (items_price - discount_amount) + settings.shipping_fee
+    if total_price < 0: total_price = 0.0
+
     new_order = Order(
         user_id=current_user.id, phone=request.form.get("phone"), address=request.form.get("address"), 
-        payment_method="Cash", items_price=items_price, shipping_fee=settings.shipping_fee, 
-        total_price=items_price + settings.shipping_fee, items_json=json.dumps(order_items)
+        payment_method=request.form.get("payment_method", "الدفع عند الاستلام (كاش)"), 
+        items_price=items_price, shipping_fee=settings.shipping_fee, discount_amount=discount_amount,
+        total_price=total_price, items_json=json.dumps(order_items)
     )
     db.session.add(new_order)
     db.session.commit()
+    
     session['cart'] = {}
+    session.pop('applied_coupon', None)
+    
     flash("تم تسجيل الطلب بنجاح!")
     return redirect(url_for('my_orders'))
 
