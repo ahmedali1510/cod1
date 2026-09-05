@@ -325,7 +325,7 @@ HTML_TEMPLATE = """
     {% elif page == 'register' %}
         <div class="auth-form" style="max-width:450px; margin:auto;">
             <h2>إنشاء حساب جديد</h2>
-            <form action="/register" method="POST">
+            <form action="/register" method="POST" enctype="multipart/form-data">
                 <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" required></div>
                 <div class="form-group"><label>الاسم الأخير</label><input type="text" name="last_name" required></div>
                 <div class="form-group"><label>البريد الإلكتروني</label><input type="email" name="email" required></div>
@@ -393,7 +393,7 @@ HTML_TEMPLATE = """
     {% elif page == 'admin' %}
         <h2>⚙️ لوحة تحكم الأدمن</h2>
 
-        <!-- 1. قسم إدارة المحادثات الحية (10 محادثات لكل صفحة) -->
+        <!-- 1. قسم إدارة المحادثات الحية -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-chat')">
                 <span>💬 المحادثات الحية والدعم الفني</span>
@@ -438,7 +438,7 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- 2. قسم إدارة الأوردرات (10 أوردرات لكل صفحة) -->
+        <!-- 2. قسم إدارة الأوردرات -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-orders')">
                 <span>📦 إدارة الأوردرات والطلبات (إجمالي: {{ total_orders_count }})</span>
@@ -481,7 +481,7 @@ HTML_TEMPLATE = """
             </div>
             <div id="sec-categories" class="admin-section-content">
                 <form action="/admin/add-category" method="POST" style="display:flex; gap:10px; margin-bottom:15px;">
-                    <input type="text" name="cat_name" placeholder="اسم القسم الجديد (مثل: أحذية، إلكترونيات...)" required style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                    <input type="text" name="cat_name" placeholder="اسم القسم الجديد (مثل: أحذية، إلكترونيات، لبان...)" required style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
                     <button type="submit" style="background:var(--primary-color); border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">إضافة قسم</button>
                 </form>
                 <ul style="list-style:none; padding:0;">
@@ -498,14 +498,14 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- 4. قسم إضافة منتج جديد -->
+        <!-- 4. قسم إضافة منتج جديد (يدعم رفع الصور أو الروابط) -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-add-prod')">
-                <span>➕ إضافة منتج جديد</span>
+                <span>➕ إضافة منتج جديد (مع رفع الصور)</span>
                 <span>▼</span>
             </div>
             <div id="sec-add-prod" class="admin-section-content">
-                <form action="/admin/add-product" method="POST">
+                <form action="/admin/add-product" method="POST" enctype="multipart/form-data">
                     <div class="form-group"><label>اسم المنتج</label><input type="text" name="name" required></div>
                     <div class="form-group"><label>السعر (ج.م)</label><input type="number" step="0.01" name="price" required></div>
                     <div class="form-group">
@@ -516,7 +516,8 @@ HTML_TEMPLATE = """
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="form-group"><label>رابط الصورة</label><input type="url" name="image" required></div>
+                    <div class="form-group"><label>رفع صورة المنتج مباشرة (أو ضع رابط الصورة أدناه)</label><input type="file" name="image_file" accept="image/*"></div>
+                    <div class="form-group"><label>أو رابط صورة خارجي (Image URL)</label><input type="url" name="image_url"></div>
                     <button type="submit" class="btn-submit">حفظ المنتج</button>
                 </form>
             </div>
@@ -549,19 +550,20 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- 6. قسم تصميم الموقع وتغيير الشعار -->
+        <!-- 6. قسم تصميم الموقع وتغيير الألوان والشعار (رفع الشعار مباشرة) -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-design')">
-                <span>🎨 تصميم الموقع وتغيير الشعار (Logo)</span>
+                <span>🎨 تصميم الموقع وتغيير الألوان والشعار (رفع شعار مباشر)</span>
                 <span>▼</span>
             </div>
             <div id="sec-design" class="admin-section-content">
-                <form action="/admin/update-settings" method="POST">
-                    <div class="form-group"><label>رابط الشعار الجديد (Logo URL)</label><input type="url" name="logo_url" value="{{ settings.logo_url or '' }}" placeholder="https://example.com/logo.png"></div>
+                <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
+                    <div class="form-group"><label>رفع شعار الموقع (Logo File)</label><input type="file" name="logo_file" accept="image/*"></div>
+                    <div class="form-group"><label>أو رابط الشعار الجديد (Logo URL)</label><input type="url" name="logo_url" value="{{ settings.logo_url or '' }}" placeholder="https://example.com/logo.png"></div>
                     <div class="form-group"><label>لون الهيدر</label><input type="color" name="header_color" value="{{ settings.header_color }}"></div>
                     <div class="form-group"><label>اللون الرئيسي</label><input type="color" name="primary_color" value="{{ settings.primary_color }}"></div>
                     <div class="form-group"><label>مصاريف الشحن</label><input type="number" step="0.01" name="shipping_fee" value="{{ settings.shipping_fee }}" required></div>
-                    <button type="submit" class="btn-submit">حفظ التصميم والشعار</button>
+                    <button type="submit" class="btn-submit">حفظ التصميم والألوان والشعار</button>
                 </form>
             </div>
         </div>
@@ -569,7 +571,7 @@ HTML_TEMPLATE = """
     {% elif page == 'edit_product' %}
         <div class="admin-card" style="max-width:500px; margin:auto;">
             <h2>✏️ تعديل المنتج #{{ edit_prod.id }}</h2>
-            <form action="/admin/edit-product/{{ edit_prod.id }}" method="POST">
+            <form action="/admin/edit-product/{{ edit_prod.id }}" method="POST" enctype="multipart/form-data">
                 <div class="form-group"><label>الاسم</label><input type="text" name="name" value="{{ edit_prod.name }}" required></div>
                 <div class="form-group"><label>السعر</label><input type="number" step="0.01" name="price" value="{{ edit_prod.price }}" required></div>
                 <div class="form-group">
@@ -580,7 +582,8 @@ HTML_TEMPLATE = """
                         {% endfor %}
                     </select>
                 </div>
-                <div class="form-group"><label>رابط الصورة</label><input type="url" name="image" value="{{ edit_prod.image }}" required></div>
+                <div class="form-group"><label>رفع صورة جديدة (اختياري)</label><input type="file" name="image_file" accept="image/*"></div>
+                <div class="form-group"><label>رابط الصورة الحالي / الجديد</label><input type="url" name="image_url" value="{{ edit_prod.image }}"></div>
                 <button type="submit" class="btn-submit">حفظ التعديلات</button>
             </form>
         </div>
@@ -717,6 +720,25 @@ document.addEventListener("DOMContentLoaded", function() {
 </html>
 """
 
+# --- مساعد رفع الصور ---
+import os
+from werkzeug.utils import secure_filename
+
+UPLOAD_FOLDER = 'static/uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+def save_uploaded_file(file_storage):
+    if file_storage and file_storage.filename != '':
+        if not os.path.exists(UPLOAD_FOLDER):
+            os.makedirs(UPLOAD_FOLDER)
+        filename = secure_filename(file_storage.filename)
+        # لتفادي تكرار الأسماء
+        unique_filename = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
+        filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
+        file_storage.save(filepath)
+        return f"/{filepath}"
+    return None
+
 # --- مساعدون ---
 def get_cart_count():
     return sum(session.get('cart', {}).values())
@@ -732,14 +754,14 @@ def get_settings():
 def get_categories_list():
     cats = Category.query.all()
     if not cats:
-        default_cats = ["أحذية", "إلكترونيات", "مأكولات ومشروبات"]
+        default_cats = ["أحذية", "إلكترونيات", "مأكولات ومشروبات", "لبان وحلويات"]
         for name in default_cats:
             db.session.add(Category(name=name))
         db.session.commit()
         cats = Category.query.all()
     return [c.name for c in cats]
 
-# --- المسارات (Routes) مع ترقيم صفحات المنتجات (10 منتجات لكل صفحة) ---
+# --- المسارات (Routes) ---
 @app.route("/")
 def home():
     page_num = int(request.args.get('page', 1))
@@ -895,13 +917,12 @@ def checkout():
 def my_orders():
     return render_template_string(HTML_TEMPLATE, page='orders', orders=Order.query.filter_by(user_id=current_user.id).all(), cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Orders", settings=get_settings())
 
-# --- لوحة تحكم الأدمن (ترقيم صفحات 10 للأوردرات والمحادثات) ---
+# --- لوحة تحكم الأدمن ---
 @app.route("/admin")
 @login_required
 def admin_panel():
     if not current_user.is_admin: return redirect(url_for('home'))
     
-    # 1. نظام ترقيم صفحات الأوردرات (10 أوردرات لكل صفحة)
     order_page = int(request.args.get('order_page', 1))
     orders_per_page = 10
     all_orders_query = Order.query.order_by(Order.created_at.desc())
@@ -909,7 +930,6 @@ def admin_panel():
     total_order_pages = (total_orders_count + orders_per_page - 1) // orders_per_page
     paged_orders = all_orders_query.offset((order_page - 1) * orders_per_page).limit(orders_per_page).all()
 
-    # 2. نظام ترقيم صفحات المحادثات (10 محادثات لكل صفحة)
     chat_page = int(request.args.get('chat_page', 1))
     chats_per_page = 10
     subquery = db.session.query(SupportMessage.session_id, db.func.max(SupportMessage.created_at).label('max_time')).group_by(SupportMessage.session_id).subquery()
@@ -985,9 +1005,15 @@ def admin_delete_category(cat_id):
 @login_required
 def admin_add_product():
     if not current_user.is_admin: return redirect(url_for('home'))
+    
+    # التعامل مع رفع الصورة مباشرة أو استخدام الرابط
+    image_url = save_uploaded_file(request.files.get("image_file"))
+    if not image_url:
+        image_url = request.form.get("image_url", "https://via.placeholder.com/400")
+
     db.session.add(Product(
         name=request.form.get("name"), price=float(request.form.get("price")),
-        category=request.form.get("category"), image=request.form.get("image")
+        category=request.form.get("category"), image=image_url
     ))
     db.session.commit()
     flash("تمت إضافة المنتج بنجاح!")
@@ -1002,7 +1028,13 @@ def admin_edit_product(prod_id):
         prod.name = request.form.get("name")
         prod.price = float(request.form.get("price"))
         prod.category = request.form.get("category")
-        prod.image = request.form.get("image")
+        
+        uploaded_img = save_uploaded_file(request.files.get("image_file"))
+        if uploaded_img:
+            prod.image = uploaded_img
+        elif request.form.get("image_url"):
+            prod.image = request.form.get("image_url")
+            
         db.session.commit()
         flash("تم التعديل بنجاح!")
         return redirect(url_for('admin_panel'))
@@ -1025,9 +1057,15 @@ def admin_update_settings():
     settings.header_color = request.form.get("header_color")
     settings.primary_color = request.form.get("primary_color")
     settings.shipping_fee = float(request.form.get("shipping_fee"))
-    settings.logo_url = request.form.get("logo_url")
+    
+    uploaded_logo = save_uploaded_file(request.files.get("logo_file"))
+    if uploaded_logo:
+        settings.logo_url = uploaded_logo
+    elif request.form.get("logo_url"):
+        settings.logo_url = request.form.get("logo_url")
+        
     db.session.commit()
-    flash("تم تحديث إعدادات التصميم والشعار بنجاح!")
+    flash("تم تحديث إعدادات التصميم والألوان والشعار بنجاح!")
     return redirect(url_for('admin_panel'))
 
 @app.route("/login", methods=["GET", "POST"])
@@ -1048,13 +1086,14 @@ def logout():
 
 def seed_data():
     if Category.query.count() == 0:
-        for c in ["أحذية", "إلكترونيات", "مأكولات ومشروبات"]:
+        for c in ["أحذية", "إلكترونيات", "مأكولات ومشروبات", "لبان وحلويات"]:
             db.session.add(Category(name=c))
         db.session.commit()
     if Product.query.count() == 0:
         db.session.add_all([
             Product(name="حذاء رياضي أنيق", price=450.0, category="أحذية", image="https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"),
-            Product(name="سماعة بلوتوث لاسلكية", price=650.0, category="إلكترونيات", image="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400")
+            Product(name="سماعة بلوتوث لاسلكية", price=650.0, category="إلكترونيات", image="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"),
+            Product(name="لبان نعناع منعش", price=15.0, category="لبان وحلويات", image="https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?w=400")
         ])
         db.session.commit()
     admin = User.query.filter_by(email="admin@shop.com").first()
