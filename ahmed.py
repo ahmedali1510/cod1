@@ -106,7 +106,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anything Shop - متجر احترافي</title>
-    <link rel="icon" type="image/png" href="https://share.google/images/69GhN4E4AOxHjZrD5">
+    <link rel="icon" type="image/png" href="https://share.google/images/s7Wap4Eb8TQBgRHj2">
     <style>
         :root {
             --header-bg: {{ settings.header_color }};
