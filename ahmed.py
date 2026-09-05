@@ -1143,10 +1143,14 @@ def admin_update_settings():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        user = User.query.filter_by(email=request.form.get("email")).first()
-        if user and check_password_hash(user.password_hash, request.form.get("password")):
+        email = request.form.get("email")
+        password = request.form.get("password")
+        user = User.query.filter_by(email=email).first()
+        
+        if user and user.password_hash and check_password_hash(user.password_hash, password):
             login_user(user)
             return redirect(url_for('admin_panel' if user.is_admin else 'home'))
+        
         flash("بيانات الدخول غير صحيحة.")
     return render_template_string(HTML_TEMPLATE, page='login', cart_count=get_cart_count(), categories_list=get_categories(), settings=get_settings())
 
@@ -1164,8 +1168,18 @@ def seed_data():
             Product(name="سماعة لاسلكية Bluetooth", price=650.0, category="إلكترونيات", image="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400")
         ])
         db.session.commit()
-    if not User.query.filter_by(email="admin@shop.com").first():
-        db.session.add(User(first_name="أحمد", last_name="الأدمن", email="admin@shop.com", password_hash=generate_password_hash("admin123", method='scrypt'), is_admin=True, phone="01000000000", address="القاهرة", birth_date="2000-01-01"))
+    
+    admin_user = User.query.filter_by(email="admin@shop.com").first()
+    if not admin_user:
+        db.session.add(User(
+            first_name="أحمد", last_name="الأدمن", email="admin@shop.com", 
+            password_hash=generate_password_hash("admin123", method='scrypt'), 
+            is_admin=True, phone="01000000000", address="القاهرة", birth_date="2000-01-01"
+        ))
+        db.session.commit()
+    else:
+        # التأكد دائماً أن حساب الأدمن يمتلك صلاحية الأدمن حتى لو تم إنشاؤه مسبقاً
+        admin_user.is_admin = True
         db.session.commit()
 
 with app.app_context():
