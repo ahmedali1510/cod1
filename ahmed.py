@@ -98,7 +98,7 @@ class SupportMessage(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# --- HTML / CSS Template (معدل بالكامل ليكون متجاوباً على الهواتف) ---
+# --- HTML / CSS Template ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -106,7 +106,8 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anything Shop - متجر احترافي</title>
-    <link rel="icon" type="image/png" href="https://i.ibb.co/3m3v4z0/anything-shop-logo.png">
+    <!-- أيقونة الموقع 3D أصفر في أزرق -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='yg' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23fff200'/><stop offset='100%' stop-color='%23ff9900'/></linearGradient><linearGradient id='bg' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23131921'/><stop offset='100%' stop-color='%23232f3e'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23bg)'/><path d='M50 18 L78 75 L63 75 L50 42 L37 75 L22 75 Z' fill='url(%23yg)' filter='drop-shadow(2px 4px 6px rgba(0,0,0,0.5))'/><polygon points='50,30 58,55 42,55' fill='%23131921'/></svg>">
     <style>
         :root {
             --header-bg: {{ settings.header_color }};
@@ -120,8 +121,27 @@ HTML_TEMPLATE = """
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin:0; padding:0; background: var(--bg-color); color: var(--text-color); font-size: var(--font-size); text-align:right; overflow-x: hidden; }
         
         header { background: var(--header-bg); color:white; padding:10px 15px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; gap:10px; flex-wrap: wrap; }
-        .logo { font-size:20px; font-weight:bold; color: var(--primary-color); text-decoration:none; white-space:nowrap; display: flex; align-items: center; gap: 6px; }
-        .logo img { width: 28px; height: 28px; object-fit: contain; border-radius: 4px; }
+        .logo { font-size:20px; font-weight:bold; color: var(--primary-color); text-decoration:none; white-space:nowrap; display: flex; align-items: center; gap: 8px; }
+        
+        /* تصميم شعار حرف A ثلاثي الأبعاد أصفر في أزرق */
+        .logo-3d {
+            width: 36px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #131921, #232f3e);
+            border-radius: 8px;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.2);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #37475a;
+        }
+        .logo-3d svg {
+            width: 28px;
+            height: 28px;
+            filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.6));
+        }
         
         .search-bar { flex-grow:1; max-width:500px; display:flex; min-width: 200px; }
         .search-bar input { width:100%; padding:8px 10px; border:none; border-radius:0 4px 4px 0; font-size:13px; outline:none; }
@@ -219,7 +239,7 @@ HTML_TEMPLATE = """
         .chat-footer input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 11px; }
         .chat-footer button { background: #0084ff; color: #fff; border: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; }
         
-        /* الفوتر (معدل بدون إيميل أو تليفون ومحتفظ بالدعم الفوري) */
+        /* الفوتر */
         footer { background: var(--header-bg); color:white; padding:20px 15px; margin-top:30px; border-top:3px solid var(--primary-color); text-align:center; }
         .footer-content { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; align-items: center; }
         .footer-support { background: #232f3e; border: 1px solid #37475a; padding: 12px 20px; border-radius: 8px; width: 100%; box-sizing: border-box; }
@@ -251,7 +271,28 @@ HTML_TEMPLATE = """
 
 <header>
     <a href="/" class="logo">
-        <img src="https://i.ibb.co/3m3v4z0/anything-shop-logo.png" alt="Logo"> Anything Shop
+        <div class="logo-3d">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                <defs>
+                    <linearGradient id="mainYellow" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#fff565"/>
+                        <stop offset="50%" stop-color="#ffd700"/>
+                        <stop offset="100%" stop-color="#ff9900"/>
+                    </linearGradient>
+                    <linearGradient id="blueShade" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#1e3c72"/>
+                        <stop offset="100%" stop-color="#2a5298"/>
+                    </linearGradient>
+                </defs>
+                <!-- خلفية حرف A ثلاثية الأبعاد -->
+                <path d="M50 12 L82 78 L65 78 L50 45 L35 78 L18 78 Z" fill="url(#mainYellow)" stroke="#d4af37" stroke-width="2"/>
+                <!-- الفراغ الداخلي لحرف A بلون أزرق غامق 3D -->
+                <polygon points="50,28 60,56 40,56" fill="url(#blueShade)"/>
+                <!-- خط العرض السفلي لحرف A -->
+                <polygon points="37,58 63,58 60,67 40,67" fill="#e68a00"/>
+            </svg>
+        </div>
+        Anything Shop
     </a>
     
     <form action="/search" method="GET" class="search-bar">
