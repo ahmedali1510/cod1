@@ -1,5 +1,7 @@
 import os
 import json
+import hmac
+import hashlib
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -90,6 +92,7 @@ class Order(db.Model):
     items_json = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
+    paymob_order_id = db.Column(db.String(100), nullable=True)
 
 class SupportMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -220,6 +223,10 @@ HTML_TEMPLATE = """
         
         footer { background: var(--header-bg); color:white; padding:20px 15px; margin-top:30px; border-top:3px solid var(--primary-color); text-align:center; }
         .alert { background:#d4edda; color:#155724; padding:10px; border-radius:4px; margin-bottom:12px; font-size: 13px; }
+        .payment-status-box { padding: 30px; text-align: center; border-radius: 8px; margin: 20px auto; max-width: 500px; }
+        .payment-status-box.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .payment-status-box.failed { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .payment-status-box.pending { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
     </style>
 </head>
 <body>
@@ -367,7 +374,6 @@ HTML_TEMPLATE = """
                 </tbody>
             </table>
             
-            <!-- قسم تفعيل كود الخصم (أي حاجة شوب) للعميل -->
             <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
                 <form action="/apply-coupon" method="POST" style="display:flex; gap:10px; align-items:center;">
                     <input type="text" name="coupon_code" placeholder="أدخل كود الخصم (مثال: أي حاجة شوب)" value="{{ session.get('applied_coupon', '') }}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
@@ -395,9 +401,8 @@ HTML_TEMPLATE = """
                     <div class="form-group">
                         <label>طريقة الدفع</label>
                         <select name="payment_method" required>
-                            <option value="الدفع عند الاستلام (كاش)">الدفع عند الاستلام (كاش)</option>
-                            <option value="بطاقة ائتمان (فيزا)">بطاقة ائتمان (فيزا)</option>
-                            <option value="محفظة إلكترونية (فودافون كاش / إنستاباي)">محفظة إلكترونية (فودافون كاش / إنستاباي)</option>
+                            <option value="cod">الدفع عند الاستلام (كاش)</option>
+                            <option value="card">بطاقة ائتمان (فيزا/ماستركارد) عبر Paymob</option>
                         </select>
                     </div>
                     <button type="submit" class="btn-submit">تأكيد ومتابعة الطلب</button>
@@ -406,6 +411,21 @@ HTML_TEMPLATE = """
         {% else %}
             <p>سلة التسوق فارغة حالياً.</p>
         {% endif %}
+
+    {% elif page == 'payment_result' %}
+        <div class="payment-status-box {{ 'success' if order.payment_status == 'Paid' else ('failed' if order.payment_status == 'Failed' else 'pending') }}">
+            {% if order.payment_status == 'Paid' %}
+                <h2>✅ تم الدفع بنجاح!</h2>
+                <p>شكراً لك، تم تأكيد طلبك رقم #{{ order.id }} وسيتم تجهيزه للشحن.</p>
+            {% elif order.payment_status == 'Failed' %}
+                <h2>❌ فشلت عملية الدفع</h2>
+                <p>لم تتم عملية الدفع بنجاح لطلبك رقم #{{ order.id }}. برجاء المحاولة مرة أخرى أو التواصل مع الدعم الفني.</p>
+            {% else %}
+                <h2>⏳ جاري تأكيد الدفع...</h2>
+                <p>طلبك رقم #{{ order.id }} قيد المراجعة، سيتم تحديث الحالة تلقائياً خلال لحظات.</p>
+            {% endif %}
+            <a href="/orders" class="nav-btn" style="display:inline-block; margin-top:15px;">عرض طلباتي</a>
+        </div>
 
     {% elif page == 'orders' %}
         <h2>طلباتي السابقة</h2>
@@ -623,7 +643,6 @@ HTML_TEMPLATE = """
     {% endif %}
 </div>
 
-<!-- زر الشات العائم (متاح فقط للمسجلين) -->
 {% if current_user.is_authenticated %}
 <div id="support-chat-btn" class="chat-widget-btn">💬</div>
 <div id="support-chat-window" class="chat-popup">
@@ -741,6 +760,172 @@ document.addEventListener("DOMContentLoaded", function() {
 </body>
 </html>
 """
+
+# ============================================================
+# ===================  تكامل Paymob الحقيقي  ==================
+# ============================================================
+PAYMOB_API_KEY = os.environ.get("PAYMOB_API_KEY")
+PAYMOB_INTEGRATION_ID = os.environ.get("PAYMOB_INTEGRATION_ID")
+PAYMOB_IFRAME_ID = os.environ.get("PAYMOB_IFRAME_ID")  # لازم تضيفه في .env من لوحة Paymob
+PAYMOB_HMAC_KEY = os.environ.get("PAYMOB_HMAC_KEY")
+
+PAYMOB_BASE_URL = "https://accept.paymob.com/api"
+
+
+class PaymobError(Exception):
+    pass
+
+
+def paymob_get_auth_token():
+    """الخطوة 1: الحصول على auth token من Paymob باستخدام الـ API Key."""
+    try:
+        resp = requests.post(
+            f"{PAYMOB_BASE_URL}/auth/tokens",
+            json={"api_key": PAYMOB_API_KEY},
+            timeout=15
+        )
+        resp.raise_for_status()
+        return resp.json()["token"]
+    except Exception as e:
+        raise PaymobError(f"فشل الحصول على توكن المصادقة من Paymob: {e}")
+
+
+def paymob_register_order(auth_token, amount_cents, merchant_order_id, items):
+    """الخطوة 2: تسجيل الأوردر على سيرفرات Paymob."""
+    payload = {
+        "auth_token": auth_token,
+        "delivery_needed": "false",
+        "amount_cents": str(int(amount_cents)),
+        "currency": "EGP",
+        "merchant_order_id": str(merchant_order_id),
+        "items": items,
+    }
+    try:
+        resp = requests.post(f"{PAYMOB_BASE_URL}/ecommerce/orders", json=payload, timeout=15)
+        resp.raise_for_status()
+        return resp.json()["id"]
+    except Exception as e:
+        raise PaymobError(f"فشل تسجيل الأوردر على Paymob: {e}")
+
+
+def paymob_get_payment_key(auth_token, amount_cents, paymob_order_id, billing_data):
+    """الخطوة 3: طلب payment key المستخدم لفتح صفحة الدفع (iframe)."""
+    payload = {
+        "auth_token": auth_token,
+        "amount_cents": str(int(amount_cents)),
+        "expiration": 3600,
+        "order_id": paymob_order_id,
+        "billing_data": billing_data,
+        "currency": "EGP",
+        "integration_id": int(PAYMOB_INTEGRATION_ID),
+    }
+    try:
+        resp = requests.post(f"{PAYMOB_BASE_URL}/acceptance/payment_keys", json=payload, timeout=15)
+        resp.raise_for_status()
+        return resp.json()["token"]
+    except Exception as e:
+        raise PaymobError(f"فشل الحصول على مفتاح الدفع من Paymob: {e}")
+
+
+def paymob_start_payment(order, user):
+    """
+    ينفذ خطوات Paymob الثلاثة كاملة ويرجع رابط الـ iframe اللي المفروض
+    نوجّه له العميل عشان يدخل بيانات الفيزا ويدفع فعلياً.
+    """
+    if not (PAYMOB_API_KEY and PAYMOB_INTEGRATION_ID and PAYMOB_IFRAME_ID):
+        raise PaymobError(
+            "إعدادات Paymob غير مكتملة في ملف .env "
+            "(محتاج PAYMOB_API_KEY, PAYMOB_INTEGRATION_ID, PAYMOB_IFRAME_ID)."
+        )
+
+    amount_cents = int(round(order.total_price * 100))
+
+    items_json = json.loads(order.items_json)
+    paymob_items = [
+        {
+            "name": it["name"][:255],
+            "amount_cents": str(int(round(it["price"] * 100))),
+            "description": it["name"][:255],
+            "quantity": it["qty"],
+        }
+        for it in items_json
+    ]
+
+    # نقسم اسم العميل لاسم أول وأخير كما يطلب Paymob
+    first_name = user.first_name or "Customer"
+    last_name = user.last_name or "Shop"
+
+    billing_data = {
+        "apartment": "NA",
+        "email": user.email,
+        "floor": "NA",
+        "first_name": first_name,
+        "street": (order.address or "NA")[:255],
+        "building": "NA",
+        "phone_number": order.phone or "01000000000",
+        "shipping_method": "NA",
+        "postal_code": "NA",
+        "city": "Cairo",
+        "country": "EG",
+        "last_name": last_name,
+        "state": "NA",
+    }
+
+    auth_token = paymob_get_auth_token()
+    paymob_order_id = paymob_register_order(
+        auth_token, amount_cents, order.id, paymob_items
+    )
+    payment_key = paymob_get_payment_key(
+        auth_token, amount_cents, paymob_order_id, billing_data
+    )
+
+    order.paymob_order_id = str(paymob_order_id)
+    db.session.commit()
+
+    iframe_url = f"{PAYMOB_BASE_URL.replace('/api', '')}/api/acceptance/iframes/{PAYMOB_IFRAME_ID}?payment_token={payment_key}"
+    return iframe_url
+
+
+def verify_paymob_hmac(data, received_hmac):
+    """
+    التحقق من الـ HMAC اللي بيبعته Paymob مع كل نداء webhook/callback
+    للتأكد إن الرسالة فعلاً جايه من Paymob ومحدش تلاعب فيها.
+    ترتيب الحقول ده محدد من توثيق Paymob (Transaction Processed Callback).
+    """
+    ordered_keys = [
+        "amount_cents", "created_at", "currency", "error_occured",
+        "has_parent_transaction", "id", "integration_id", "is_3d_secure",
+        "is_auth", "is_capture", "is_refunded", "is_standalone_payment",
+        "is_voided", "order.id", "owner", "pending", "source_data.pan",
+        "source_data.sub_type", "source_data.type", "success",
+    ]
+
+    def get_nested(d, dotted_key):
+        parts = dotted_key.split(".")
+        val = d
+        for p in parts:
+            if val is None:
+                return ""
+            val = val.get(p) if isinstance(val, dict) else None
+        return val
+
+    concatenated = ""
+    for key in ordered_keys:
+        val = get_nested(data, key)
+        if val is None:
+            val = ""
+        if isinstance(val, bool):
+            val = "true" if val else "false"
+        concatenated += str(val)
+
+    calculated_hmac = hmac.new(
+        PAYMOB_HMAC_KEY.encode("utf-8"),
+        concatenated.encode("utf-8"),
+        hashlib.sha512
+    ).hexdigest()
+
+    return hmac.compare_digest(calculated_hmac, received_hmac or "")
+
 
 # --- مساعد رفع الصور ---
 UPLOAD_FOLDER = 'static/uploads'
@@ -985,20 +1170,91 @@ def checkout():
     total_price = (items_price - discount_amount) + settings.shipping_fee
     if total_price < 0: total_price = 0.0
 
+    payment_method = request.form.get("payment_method", "cod")
+
     new_order = Order(
         user_id=current_user.id, phone=request.form.get("phone"), address=request.form.get("address"), 
-        payment_method=request.form.get("payment_method", "الدفع عند الاستلام (كاش)"), 
+        payment_method="card" if payment_method == "card" else "cod",
+        payment_status='Pending',
         items_price=items_price, shipping_fee=settings.shipping_fee, discount_amount=discount_amount,
         total_price=total_price, items_json=json.dumps(order_items)
     )
     db.session.add(new_order)
     db.session.commit()
-    
+
+    # الكارت والكوبون بيتفضّوا سواء دفع كاش أو كارت، عشان الأوردر اتسجل بالفعل
     session['cart'] = {}
     session.pop('applied_coupon', None)
-    
+
+    if payment_method == "card":
+        try:
+            iframe_url = paymob_start_payment(new_order, current_user)
+            return redirect(iframe_url)
+        except PaymobError as e:
+            new_order.payment_status = "Failed"
+            db.session.commit()
+            flash(f"تعذر بدء عملية الدفع الإلكتروني: {e}")
+            return redirect(url_for('my_orders'))
+
+    new_order.payment_status = "Cash on Delivery"
+    db.session.commit()
     flash("تم تسجيل الطلب بنجاح!")
     return redirect(url_for('my_orders'))
+
+
+@app.route("/payment/callback")
+def paymob_callback():
+    """
+    الصفحة اللي المتصفح بيرجّع لها العميل بعد الدفع (Transaction Response Callback).
+    دي بس لعرض النتيجة للعميل - التحديث الفعلي للحالة بيحصل في /payment/webhook
+    (السيرفر لسيرفر) لأنه الوحيد اللي مينفعش يتزوّر من غير الـ HMAC السليم.
+    """
+    data = request.args.to_dict()
+    received_hmac = data.get("hmac")
+
+    order_id = data.get("merchant_order_id")
+    order = Order.query.get(int(order_id)) if order_id and order_id.isdigit() else None
+
+    if order and verify_paymob_hmac(data, received_hmac):
+        success = data.get("success") == "true"
+        order.payment_status = "Paid" if success else "Failed"
+        db.session.commit()
+    
+    if not order:
+        flash("لم يتم العثور على الطلب.")
+        return redirect(url_for('home'))
+
+    return render_template_string(
+        HTML_TEMPLATE, page='payment_result', order=order,
+        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="", settings=get_settings()
+    )
+
+
+@app.route("/payment/webhook", methods=["POST"])
+def paymob_webhook():
+    """
+    نداء سيرفر-لسيرفر من Paymob (Transaction Processed Callback) - ده المصدر
+    الموثوق فيه لتحديث حالة الدفع، لأنه بيحمل HMAC بيتحقق منه السيرفر مباشرة.
+    """
+    payload = request.get_json(silent=True) or {}
+    obj = payload.get("obj", payload)
+    received_hmac = request.args.get("hmac")
+
+    if not verify_paymob_hmac(obj, received_hmac):
+        return jsonify({"status": "error", "message": "invalid hmac"}), 401
+
+    merchant_order_id = (obj.get("order") or {}).get("merchant_order_id")
+    if not merchant_order_id:
+        return jsonify({"status": "error", "message": "no order id"}), 400
+
+    order = Order.query.get(int(merchant_order_id))
+    if not order:
+        return jsonify({"status": "error", "message": "order not found"}), 404
+
+    order.payment_status = "Paid" if obj.get("success") else "Failed"
+    db.session.commit()
+    return jsonify({"status": "success"})
+
 
 @app.route("/orders")
 @login_required
@@ -1009,199 +1265,4 @@ def my_orders():
 @app.route("/admin")
 @login_required
 def admin_panel():
-    if not current_user.is_admin: return redirect(url_for('home'))
-    
-    order_page = int(request.args.get('order_page', 1))
-    orders_per_page = 10
-    all_orders_query = Order.query.order_by(Order.created_at.desc())
-    total_orders_count = all_orders_query.count()
-    total_order_pages = (total_orders_count + orders_per_page - 1) // orders_per_page
-    paged_orders = all_orders_query.offset((order_page - 1) * orders_per_page).limit(orders_per_page).all()
-
-    chat_page = int(request.args.get('chat_page', 1))
-    chats_per_page = 10
-    subquery = db.session.query(SupportMessage.session_id, db.func.max(SupportMessage.created_at).label('max_time')).group_by(SupportMessage.session_id).subquery()
-    raw_sessions = db.session.query(subquery.c.session_id, subquery.c.max_time.label('last_time')).order_by(subquery.c.max_time.desc()).all()
-    
-    chat_sessions = []
-    for s in raw_sessions:
-        unread_cnt = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client', is_read=False).count()
-        first_msg = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client').first()
-        chat_sessions.append({
-            "session_id": s.session_id, "last_time": str(s.last_time), "unread_count": unread_cnt,
-            "email": first_msg.client_email if first_msg else "عميل مسجل"
-        })
-    
-    total_chat_pages = (len(chat_sessions) + chats_per_page - 1) // chats_per_page
-    paged_chats = chat_sessions[(chat_page - 1) * chats_per_page : chat_page * chats_per_page]
-    
-    active_session = request.args.get("session")
-    if not active_session and paged_chats: active_session = paged_chats[0]["session_id"]
-
-    return render_template_string(
-        HTML_TEMPLATE, page='admin', 
-        paged_orders=paged_orders, total_orders_count=total_orders_count, total_order_pages=total_order_pages, order_page=order_page,
-        paged_chats=paged_chats, total_chat_pages=total_chat_pages, chat_page=chat_page, active_session=active_session,
-        custom_categories=Category.query.all(), all_products=Product.query.all(),
-        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Admin", settings=get_settings()
-    )
-
-@app.route("/admin/mark-order-read/<int:order_id>")
-@login_required
-def mark_order_read(order_id):
-    if not current_user.is_admin: return redirect(url_for('home'))
-    ord = Order.query.get_or_404(order_id)
-    ord.is_read = True
-    db.session.commit()
-    return redirect(url_for('admin_panel'))
-
-@app.route("/admin/add-category", methods=["POST"])
-@login_required
-def admin_add_category():
-    if not current_user.is_admin: return redirect(url_for('home'))
-    name = request.form.get("cat_name", "").strip()
-    if name and not Category.query.filter_by(name=name).first():
-        db.session.add(Category(name=name))
-        db.session.commit()
-        flash("تم إضافة القسم بنجاح!")
-    return redirect(url_for('admin_panel'))
-
-@app.route("/admin/edit-category/<int:cat_id>", methods=["POST"])
-@login_required
-def admin_edit_category(cat_id):
-    if not current_user.is_admin: return redirect(url_for('home'))
-    cat = Category.query.get_or_404(cat_id)
-    new_name = request.form.get("new_name", "").strip()
-    if new_name:
-        old_name = cat.name
-        cat.name = new_name
-        Product.query.filter_by(category=old_name).update({Product.category: new_name})
-        db.session.commit()
-        flash("تم تحديث اسم القسم بنجاح!")
-    return redirect(url_for('admin_panel'))
-
-@app.route("/admin/delete-category/<int:cat_id>")
-@login_required
-def admin_delete_category(cat_id):
-    if not current_user.is_admin: return redirect(url_for('home'))
-    db.session.delete(Category.query.get_or_404(cat_id))
-    db.session.commit()
-    flash("تم حذف القسم بنجاح.")
-    return redirect(url_for('admin_panel'))
-
-@app.route("/admin/add-product", methods=["POST"])
-@login_required
-def admin_add_product():
-    if not current_user.is_admin: return redirect(url_for('home'))
-    image_url = save_uploaded_file(request.files.get("image_file"))
-    if not image_url:
-        image_url = request.form.get("image_url", "https://via.placeholder.com/400")
-
-    db.session.add(Product(
-        name=request.form.get("name"), price=float(request.form.get("price")),
-        category=request.form.get("category"), image=image_url
-    ))
-    db.session.commit()
-    flash("تمت إضافة المنتج بنجاح!")
-    return redirect(url_for('admin_panel'))
-
-@app.route("/admin/edit-product/<int:prod_id>", methods=["GET", "POST"])
-@login_required
-def admin_edit_product(prod_id):
-    if not current_user.is_admin: return redirect(url_for('home'))
-    prod = Product.query.get_or_404(prod_id)
-    if request.method == "POST":
-        prod.name = request.form.get("name")
-        prod.price = float(request.form.get("price"))
-        prod.category = request.form.get("category")
-        
-        uploaded_img = save_uploaded_file(request.files.get("image_file"))
-        if uploaded_img:
-            prod.image = uploaded_img
-        elif request.form.get("image_url"):
-            prod.image = request.form.get("image_url")
-            
-        db.session.commit()
-        flash("تم التعديل بنجاح!")
-        return redirect(url_for('admin_panel'))
-    return render_template_string(HTML_TEMPLATE, page='edit_product', edit_prod=prod, custom_categories=Category.query.all(), cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
-
-@app.route("/admin/delete-product/<int:prod_id>")
-@login_required
-def admin_delete_product(prod_id):
-    if not current_user.is_admin: return redirect(url_for('home'))
-    db.session.delete(Product.query.get_or_404(prod_id))
-    db.session.commit()
-    flash("تم حذف المنتج.")
-    return redirect(url_for('admin_panel'))
-
-@app.route("/admin/update-settings", methods=["POST"])
-@login_required
-def admin_update_settings():
-    if not current_user.is_admin: return redirect(url_for('home'))
-    settings = get_settings()
-    settings.header_color = request.form.get("header_color")
-    settings.primary_color = request.form.get("primary_color")
-    settings.price_color = request.form.get("price_color")
-    settings.bg_color = request.form.get("bg_color")
-    settings.text_color = request.form.get("text_color")
-    settings.icon_color = request.form.get("icon_color")
-    settings.card_bg_color = request.form.get("card_bg_color")
-    settings.shipping_fee = float(request.form.get("shipping_fee"))
-    
-    uploaded_logo = save_uploaded_file(request.files.get("logo_file"))
-    if uploaded_logo:
-        settings.logo_url = uploaded_logo
-    elif request.form.get("logo_url"):
-        settings.logo_url = request.form.get("logo_url")
-        
-    db.session.commit()
-    flash("تم تحديث إعدادات التصميم بالكامل بنجاح!")
-    return redirect(url_for('admin_panel'))
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        user = User.query.filter_by(email=request.form.get("email")).first()
-        if user and user.password_hash and check_password_hash(user.password_hash, request.form.get("password")):
-            login_user(user)
-            return redirect(url_for('admin_panel' if user.is_admin else 'home'))
-        flash("خطأ في البيانات.")
-    return render_template_string(HTML_TEMPLATE, page='login', cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
-
-@app.route("/logout")
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('home'))
-
-def seed_data():
-    if Category.query.count() == 0:
-        for c in ["أحذية", "إلكترونيات", "مأكولات ومشروبات", "لبان وحلويات"]:
-            db.session.add(Category(name=c))
-        db.session.commit()
-    if Product.query.count() == 0:
-        db.session.add_all([
-            Product(name="حذاء رياضي أنيق", price=450.0, category="أحذية", image="https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"),
-            Product(name="سماعة بلوتوث لاسلكية", price=650.0, category="إلكترونيات", image="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400"),
-            Product(name="لبان نعناع منعش", price=15.0, category="لبان وحلويات", image="https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?w=400")
-        ])
-        db.session.commit()
-    admin = User.query.filter_by(email="admin@shop.com").first()
-    if not admin:
-        db.session.add(User(
-            first_name="أحمد", last_name="الأدمن", email="admin@shop.com", 
-            password_hash=generate_password_hash("admin123", method='scrypt'), 
-            is_admin=True, phone="01000000000", address="القاهرة"
-        ))
-        db.session.commit()
-    else:
-        admin.is_admin = True
-        db.session.commit()
-
-with app.app_context():
-    db.create_all()
-    seed_data()
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+   
