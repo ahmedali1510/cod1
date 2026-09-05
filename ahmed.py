@@ -85,12 +85,14 @@ class Order(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
 
-# نموذج رسائل الشات الحي الفوري
+# نموذج رسائل الشات الحي الفوري مع دعم الحقول الجديدة (البريد والهاتف للعميل)
 class SupportMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     session_id = db.Column(db.String(255), nullable=False)
     sender_type = db.Column(db.String(20), nullable=False)
     message = db.Column(db.Text, nullable=False)
+    client_email = db.Column(db.String(120), nullable=True)
+    client_phone = db.Column(db.String(20), nullable=True)
     is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -123,7 +125,6 @@ HTML_TEMPLATE = """
         header { background: var(--header-bg); color:white; padding:10px 15px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; gap:10px; flex-wrap: wrap; }
         .logo { font-size:20px; font-weight:bold; color: var(--primary-color); text-decoration:none; white-space:nowrap; display: flex; align-items: center; gap: 8px; }
         
-        /* تصميم شعار حرف A ثلاثي الأبعاد أصفر في أزرق */
         .logo-3d {
             width: 36px;
             height: 36px;
@@ -208,7 +209,7 @@ HTML_TEMPLATE = """
         
         /* لوحة التحكم والتشات */
         .live-chat-admin-container { display: flex; height: 500px; background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 15px; margin-bottom: 20px; }
-        .chat-sidebar { width: 240px; background: #f8f9fa; border-left: 1px solid #ddd; overflow-y: auto; }
+        .chat-sidebar { width: 260px; background: #f8f9fa; border-left: 1px solid #ddd; overflow-y: auto; }
         .chat-sidebar h4 { padding: 12px; margin: 0; background: #232f3e; color: #fff; font-size: 13px; }
         .client-chat-item { padding: 10px 12px; border-bottom: 1px solid #eee; cursor: pointer; text-decoration: none; color: #333; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
         .client-chat-item:hover, .client-chat-item.active { background: #e9ecef; }
@@ -227,7 +228,7 @@ HTML_TEMPLATE = """
         .chat-widget-btn span { font-size: 9px; margin-top: 1px; }
         
         /* نافذة الشات المنبثقة للعميل */
-        .chat-popup { position: fixed; bottom: 82px; left: 15px; width: 300px; max-width: calc(100vw - 30px); height: 380px; background: white; border-radius: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.2); z-index: 1000; display: none; flex-direction: column; overflow: hidden; border: 1px solid #ccc; }
+        .chat-popup { position: fixed; bottom: 82px; left: 15px; width: 320px; max-width: calc(100vw - 30px); height: 400px; background: white; border-radius: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.2); z-index: 1000; display: none; flex-direction: column; overflow: hidden; border: 1px solid #ccc; }
         .chat-header { background: var(--header-bg); color: white; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 13px; }
         .chat-header button { background: none; border: none; color: white; font-size: 15px; cursor: pointer; }
         .chat-notice { background: #fff3cd; color: #856404; padding: 6px 8px; font-size: 10px; text-align: center; border-bottom: 1px solid #ffeeba; }
@@ -235,7 +236,8 @@ HTML_TEMPLATE = """
         .chat-msg { padding: 7px 10px; border-radius: 8px; max-width: 80%; font-size: 12px; line-height: 1.4; }
         .chat-msg.client { background: #0084ff; color: #fff; align-self: flex-end; }
         .chat-msg.admin { background: #e4e6eb; color: #000; align-self: flex-start; }
-        .chat-footer { padding: 8px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 5px; }
+        .chat-footer { padding: 8px; background: #fff; border-top: 1px solid #ddd; display: flex; flex-direction: column; gap: 5px; }
+        .chat-footer-row { display: flex; gap: 5px; width: 100%; }
         .chat-footer input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 11px; }
         .chat-footer button { background: #0084ff; color: #fff; border: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; }
         
@@ -248,7 +250,6 @@ HTML_TEMPLATE = """
         .footer-support a { color: #ffd814; text-decoration: none; }
         .footer-support a:hover { text-decoration: underline; }
         
-        /* التجاوب الدقيق مع شاشات الهواتف المحمولة */
         @media(max-width: 768px) {
             header { padding: 8px 10px; justify-content: center; }
             .logo { font-size: 18px; margin-bottom: 4px; }
@@ -284,11 +285,8 @@ HTML_TEMPLATE = """
                         <stop offset="100%" stop-color="#2a5298"/>
                     </linearGradient>
                 </defs>
-                <!-- خلفية حرف A ثلاثية الأبعاد -->
                 <path d="M50 12 L82 78 L65 78 L50 45 L35 78 L18 78 Z" fill="url(#mainYellow)" stroke="#d4af37" stroke-width="2"/>
-                <!-- الفراغ الداخلي لحرف A بلون أزرق غامق 3D -->
                 <polygon points="50,28 60,56 40,56" fill="url(#blueShade)"/>
-                <!-- خط العرض السفلي لحرف A -->
                 <polygon points="37,58 63,58 60,67 40,67" fill="#e68a00"/>
             </svg>
         </div>
@@ -478,8 +476,9 @@ HTML_TEMPLATE = """
                 {% for conv in chat_sessions %}
                     <a href="/admin?session={{ conv.session_id }}" class="client-chat-item {% if active_session == conv.session_id %}active{% endif %}">
                         <div>
-                            <strong>جلسة:</strong> {{ conv.session_id[:8] }}...<br>
-                            <small style="color: #666;">{{ conv.last_time[:16] }}</small>
+                            <strong>العميل:</strong> {{ conv.email or 'زوار عامون' }}<br>
+                            <small style="color: #666;">📞 {{ conv.phone or 'غير متوفر' }}</small><br>
+                            <small style="color: #444;">{{ conv.last_time[:16] }}</small>
                         </div>
                         {% if conv.unread_count > 0 %}
                             <span class="badge-notification" style="position: static;">{{ conv.unread_count }}</span>
@@ -609,19 +608,30 @@ HTML_TEMPLATE = """
     <span>الدعم</span>
 </div>
 
-<!-- نافذة محادثة ودعم العملاء المنبثقة -->
+<!-- نافذة محادثة ودعم العملاء المنبثقة مع التحقق من تسجيل الدخول والبيانات -->
 <div id="support-chat-window" class="chat-popup">
     <div class="chat-header">
         <span>الدعم الفني المباشر</span>
         <button id="close-chat">✕</button>
     </div>
     <div class="chat-notice">
-        ⏰ سيتم الرد عليك في أقرب وقت.
+        ⏰ يرجى إدخال البريد ورقم الهاتف للبدء.
     </div>
     <div id="chat-messages" class="chat-messages-container"></div>
     <div class="chat-footer">
-        <input type="text" id="chat-input" placeholder="اكتب رسالتك هنا..." autocomplete="off">
-        <button id="chat-send">إرسال</button>
+        {% if not current_user.is_authenticated %}
+            <div class="chat-footer-row">
+                <input type="email" id="chat-client-email" placeholder="البريد الإلكتروني..." autocomplete="off">
+                <input type="tel" id="chat-client-phone" placeholder="رقم الهاتف..." autocomplete="off">
+            </div>
+        {% endif %}
+        <div class="chat-footer-row">
+            <input type="text" id="chat-input" placeholder="اكتب رسالتك هنا..." autocomplete="off">
+            <button id="chat-send">إرسال</button>
+        </div>
+        {% if not current_user.is_authenticated %}
+            <small style="color:#d9534f; font-size:10px; text-align:center;">يجب تسجيل الدخول أو إدخال البريد والهاتف للمراسلة.</small>
+        {% endif %}
     </div>
 </div>
 
@@ -659,6 +669,8 @@ document.addEventListener("DOMContentLoaded", function() {
     const closeBtn = document.getElementById('close-chat');
     const sendBtn = document.getElementById('chat-send');
     const input = document.getElementById('chat-input');
+    const emailInput = document.getElementById('chat-client-email');
+    const phoneInput = document.getElementById('chat-client-phone');
     const msgContainer = document.getElementById('chat-messages');
 
     let isChatOpen = false;
@@ -682,7 +694,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (data.status === 'success') {
                     msgContainer.innerHTML = '';
                     if (data.messages.length === 0) {
-                        msgContainer.innerHTML = '<div style="text-align:center; color:#888; font-size:11px; margin-top:15px;">أهلاً بك! اكتب رسالتك وسنرد عليك.</div>';
+                        msgContainer.innerHTML = '<div style="text-align:center; color:#888; font-size:11px; margin-top:15px;">أهلاً بك! يرجى إدخال البريد ورقم الهاتف ومراسلتنا.</div>';
                     }
                     data.messages.forEach(msg => {
                         const div = document.createElement('div');
@@ -704,10 +716,23 @@ document.addEventListener("DOMContentLoaded", function() {
         const text = input.value.trim();
         if (!text) return;
 
+        let email = "{{ current_user.email if current_user.is_authenticated else '' }}";
+        let phone = "{{ current_user.phone if current_user.is_authenticated else '' }}";
+
+        if (!email && emailInput) email = emailInput.value.trim();
+        if (!phone && phoneInput) phone = phoneInput.value.trim();
+
+        if (!email || !phone) {
+            alert("عذراً، يجب إدخال البريد الإلكتروني ورقم الهاتف أولاً لكي تتمكن من إرسال رسالة الدعم الفني.");
+            return;
+        }
+
         const formData = new FormData();
         formData.append('action', 'client_send');
         formData.append('session_id', sessionId);
         formData.append('message', text);
+        formData.append('client_email', email);
+        formData.append('client_phone', phone);
 
         fetch('/api/chat/send', { method: 'POST', body: formData })
             .then(res => res.json())
@@ -715,6 +740,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (data.status === 'success') {
                     input.value = '';
                     fetchClientMessages();
+                } else {
+                    alert(data.message || "حدث خطأ أثناء الإرسال");
                 }
             });
     }
@@ -739,7 +766,11 @@ document.addEventListener("DOMContentLoaded", function() {
                         data.messages.forEach(msg => {
                             const div = document.createElement('div');
                             div.className = 'admin-msg-bubble ' + msg.sender_type;
-                            div.innerHTML = msg.message.replace(/\\n/g, '<br>') + 
+                            let infoHeader = "";
+                            if (msg.sender_type === 'client' && (msg.client_email || msg.client_phone)) {
+                                infoHeader = `<div style="font-size:10px; font-weight:bold; color:#0056b3; margin-bottom:3px;">📧 ${msg.client_email || 'بدون بريد'} | 📞 ${msg.client_phone || 'بدون هاتف'}</div>`;
+                            }
+                            div.innerHTML = infoHeader + (msg.message ? msg.message.replace(/\\n/g, '<br>') : '') + 
                                             `<div style="font-size:9px; opacity:0.7; margin-top:2px; text-align:left;">${msg.created_at}</div>`;
                             adminMsgBox.appendChild(div);
                         });
@@ -843,7 +874,25 @@ def api_chat_send():
         return jsonify({"status": "error", "message": "بيانات غير صالحة"})
 
     if action == "client_send":
-        msg = SupportMessage(session_id=session_id, sender_type="client", message=message, is_read=False)
+        client_email = request.form.get("client_email", "").strip()
+        client_phone = request.form.get("client_phone", "").strip()
+
+        # التحقق من تسجيل الدخول أو إدخال البريد والهاتف إلزاميًا
+        if not current_user.is_authenticated and (not client_email or not client_phone):
+            return jsonify({"status": "error", "message": "البريد الإلكتروني ورقم الهاتف إلزاميان للبدء."})
+
+        if current_user.is_authenticated:
+            client_email = current_user.email
+            client_phone = current_user.phone
+
+        msg = SupportMessage(
+            session_id=session_id, 
+            sender_type="client", 
+            message=message, 
+            client_email=client_email, 
+            client_phone=client_phone, 
+            is_read=False
+        )
         db.session.add(msg)
         db.session.commit()
         return jsonify({"status": "success"})
@@ -870,6 +919,8 @@ def api_chat_messages():
     msgs_list = [{
         "sender_type": m.sender_type,
         "message": m.message,
+        "client_email": m.client_email,
+        "client_phone": m.client_phone,
         "created_at": m.created_at.strftime('%Y-%m-%d %H:%M')
     } for m in messages]
 
@@ -1049,10 +1100,18 @@ def admin_panel():
     chat_sessions = []
     for s in raw_sessions:
         unread_cnt = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client', is_read=False).count()
+        
+        # استخراج بيانات العميل (البريد والهاتف) الخاصة بهذه الجلسة إن وجدت لتجنب أخطاء العرض
+        first_msg = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client').first()
+        c_email = first_msg.client_email if first_msg and first_msg.client_email else "زائر عام"
+        c_phone = first_msg.client_phone if first_msg and first_msg.client_phone else ""
+
         chat_sessions.append({
             "session_id": s.session_id,
-            "last_time": s.last_time,
-            "unread_count": unread_cnt
+            "last_time": str(s.last_time),
+            "unread_count": unread_cnt,
+            "email": c_email,
+            "phone": c_phone
         })
     
     active_session = request.args.get("session")
@@ -1178,7 +1237,6 @@ def seed_data():
         ))
         db.session.commit()
     else:
-        # التأكد دائماً أن حساب الأدمن يمتلك صلاحية الأدمن حتى لو تم إنشاؤه مسبقاً
         admin_user.is_admin = True
         db.session.commit()
 
