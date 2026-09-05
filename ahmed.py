@@ -85,6 +85,7 @@ class Order(db.Model):
     payment_status = db.Column(db.String(50), default='Pending')
     paymob_order_id = db.Column(db.String(100), nullable=True)
     items_price = db.Column(db.Float, nullable=False)
+    discount_amount = db.Column(db.Float, nullable=False, default=0.0)
     shipping_fee = db.Column(db.Float, nullable=False, default=50.0)
     total_price = db.Column(db.Float, nullable=False)
     items_json = db.Column(db.Text, nullable=False)
@@ -142,6 +143,8 @@ HTML_TEMPLATE = """
         .btn-social { display:flex; align-items:center; justify-content:center; gap:10px; padding:10px; border-radius:4px; text-decoration:none; font-weight:bold; margin-top:10px; border:1px solid #ccc; background:white; color:#333; }
         .btn-social img { width:20px; height:20px; }
         .alert { background:#d4edda; color:#155724; padding:10px; border-radius:4px; margin-bottom:15px; }
+        .promo-banner { background: #fff8e1; border: 2px dashed #ff9900; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
+        .promo-code-box { display: inline-block; background: #232f3e; color: #ffd814; padding: 8px 15px; font-weight: bold; border-radius: 4px; margin: 5px 0; cursor: pointer; letter-spacing: 1px; }
         .status-paid { color:green; font-weight:bold; }
         .status-pending { color:orange; font-weight:bold; }
         .admin-grid { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
@@ -261,11 +264,11 @@ HTML_TEMPLATE = """
             <h2>👤 ملفي الشخصي وتعديل البيانات</h2>
             <form action="/profile" method="POST">
                 <div class="form-group">
-                    <label>الاسم الأول</label>
+                    <label>الاسم الأول <span style="cursor:pointer; float:left;" title="تعديل">✏️</span></label>
                     <input type="text" name="first_name" value="{{ current_user.first_name }}" required>
                 </div>
                 <div class="form-group">
-                    <label>الاسم الأخير</label>
+                    <label>الاسم الأخير <span style="cursor:pointer; float:left;" title="تعديل">✏️</span></label>
                     <input type="text" name="last_name" value="{{ current_user.last_name }}" required>
                 </div>
                 <div class="form-group">
@@ -273,15 +276,15 @@ HTML_TEMPLATE = """
                     <input type="email" value="{{ current_user.email }}" disabled style="background:#eee;">
                 </div>
                 <div class="form-group">
-                    <label>رقم الهاتف</label>
+                    <label>رقم الهاتف <span style="cursor:pointer; float:left;" title="تعديل">✏️</span></label>
                     <input type="tel" name="phone" value="{{ current_user.phone or '' }}" required>
                 </div>
                 <div class="form-group">
-                    <label>العنوان بالكامل</label>
+                    <label>العنوان بالكامل <span style="cursor:pointer; float:left;" title="تعديل">✏️</span></label>
                     <textarea name="address" rows="2" required>{{ current_user.address or '' }}</textarea>
                 </div>
                 <div class="form-group">
-                    <label>تاريخ الميلاد</label>
+                    <label>تاريخ الميلاد <span style="cursor:pointer; float:left;" title="تعديل">✏️</span></label>
                     <input type="date" name="birth_date" value="{{ current_user.birth_date or '' }}">
                 </div>
                 <button type="submit" class="btn-submit">حفظ وتحديث البيانات</button>
@@ -290,6 +293,18 @@ HTML_TEMPLATE = """
 
     {% elif page == 'cart' %}
         <h2>سلة التسوق</h2>
+        
+        {% if is_first_order and cart_items %}
+        <div class="promo-banner">
+            <h3>🎉 مبروك! لديك خصم ترحيبي 10% على أول أوردر لك</h3>
+            <p>انقر على الكود أدناه لتفعيله مباشرة في سلة التسوق:</p>
+            <form action="/apply-coupon" method="POST" style="display:inline;">
+                <input type="hidden" name="coupon_code" value="Anything Shop 10">
+                <button type="submit" class="promo-code-box" style="border:none; cursor:pointer;">Anything Shop 10</button>
+            </form>
+        </div>
+        {% endif %}
+
         {% if cart_items %}
             <table class="cart-table">
                 <thead>
@@ -306,10 +321,25 @@ HTML_TEMPLATE = """
                     {% endfor %}
                 </tbody>
             </table>
+
+            <!-- قسم إدخال وتفعيل أكواد الخصم -->
+            <div style="background:white; color:#333; padding:15px; border-radius:8px; margin-bottom:20px; border:1px solid #ccc;">
+                <form action="/apply-coupon" method="POST" style="display:flex; gap:10px;">
+                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم هنا (مثال: Anything Shop 10)" value="{{ session.get('applied_coupon', '') }}" style="flex-grow:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                    <button type="submit" style="background:#232f3e; color:white; border:none; padding:8px 20px; border-radius:4px; font-weight:bold; cursor:pointer;">تطبيق الكود</button>
+                </form>
+                {% if session.get('applied_coupon') %}
+                    <p style="color:green; margin-top:8px;">✅ تم تفعيل الكود بنجاح (خصم 10%) <a href="/remove-coupon" style="color:red; text-decoration:none; margin-right:10px;">[إلغاء]</a></p>
+                {% endif %}
+            </div>
+
             <div style="text-align:left; background:white; color:#333; padding:15px; border-radius:8px; margin-bottom:20px;">
                 <p>إجمالي المنتجات: <strong>{{ "%.2f"|format(total_price) }} ج.م</strong></p>
+                {% if discount_amount > 0 %}
+                    <p style="color:green;">قيمة الخصم: <strong>- {{ "%.2f"|format(discount_amount) }} ج.م</strong></p>
+                {% endif %}
                 <p>مصاريف الشحن: <strong>{{ "%.2f"|format(settings.shipping_fee) }} ج.م</strong></p>
-                <h3 style="color: var(--price-color);">الإجمالي: {{ "%.2f"|format(total_price + settings.shipping_fee) }} ج.م</h3>
+                <h3 style="color: var(--price-color);">الإجمالي النهائي: {{ "%.2f"|format(final_total) }} ج.م</h3>
             </div>
             
             <div class="checkout-form">
@@ -345,7 +375,10 @@ HTML_TEMPLATE = """
                 <p><strong>حالة الدفع:</strong> <span class="{% if order.payment_status == 'Paid' %}status-paid{% else %}status-pending{% endif %}">{{ order.payment_status }}</span></p>
                 <p><strong>طريقة الدفع:</strong> {{ order.payment_method }}</p>
                 <p><strong>العنوان:</strong> {{ order.address }}</p>
-                <h3 style="color: var(--price-color);">المبلغ: {{ "%.2f"|format(order.total_price) }} ج.م</h3>
+                {% if order.discount_amount > 0 %}
+                    <p><strong>الخصم المطبق:</strong> - {{ "%.2f"|format(order.discount_amount) }} ج.م</p>
+                {% endif %}
+                <h3 style="color: var(--price-color);">المبلغ الإجمالي: {{ "%.2f"|format(order.total_price) }} ج.م</h3>
             </div>
         {% endfor %}
 
@@ -501,7 +534,7 @@ def register():
         db.session.add(new_user)
         db.session.commit()
         login_user(new_user)
-        flash("تم إنشاء الحساب وتسجيل الدخول بنجاح!")
+        flash("تم إنشاء الحساب وتسجيل الدخول بنجاح! مبروك كود الخصم الترحيبي Anything Shop 10")
         return redirect(url_for('home'))
 
     return render_template_string(HTML_TEMPLATE, page='register', cart_count=get_cart_count(), categories_list=get_categories(), settings=get_settings())
@@ -530,6 +563,22 @@ def add_to_cart():
     flash("تمت إضافة المنتج للسلة بنجاح!")
     return redirect(request.referrer or url_for('home'))
 
+@app.route("/apply-coupon", methods=["POST"])
+def apply_coupon():
+    code = request.form.get("coupon_code", "").strip()
+    if code == "Anything Shop 10":
+        session['applied_coupon'] = code
+        flash("تم تفعيل كود الخصم (10%) بنجاح!")
+    else:
+        flash("كود الخصم غير صحيح أو منتهي الصلاحية.")
+    return redirect(url_for('view_cart'))
+
+@app.route("/remove-coupon")
+def remove_coupon():
+    session.pop('applied_coupon', None)
+    flash("تم إلغاء كود الخصم.")
+    return redirect(url_for('view_cart'))
+
 @app.route("/cart")
 def view_cart():
     cart = session.get('cart', {})
@@ -539,7 +588,27 @@ def view_cart():
         if product:
             total_price += product.price * qty
             cart_items.append({"name": product.name, "price": product.price, "qty": qty})
-    return render_template_string(HTML_TEMPLATE, page='cart', cart_items=cart_items, total_price=total_price, cart_count=get_cart_count(), categories_list=get_categories(), current_cat="Cart", settings=get_settings())
+    
+    # التحقق مما إذا كان هذا هو أول أوردر للعميل (ليس لديه طلبات سابقة في قاعدة البيانات)
+    is_first_order = False
+    if current_user.is_authenticated:
+        user_orders_count = Order.query.filter_by(user_id=current_user.id).count()
+        if user_orders_count == 0:
+            is_first_order = True
+
+    # حساب الخصم إذا كان الكود مفعلاً
+    discount_amount = 0.0
+    if session.get('applied_coupon') == "Anything Shop 10":
+        discount_amount = total_price * 0.10
+
+    settings = get_settings()
+    final_total = (total_price - discount_amount) + settings.shipping_fee
+
+    return render_template_string(
+        HTML_TEMPLATE, page='cart', cart_items=cart_items, total_price=total_price, 
+        discount_amount=discount_amount, final_total=final_total, is_first_order=is_first_order,
+        cart_count=get_cart_count(), categories_list=get_categories(), current_cat="Cart", settings=settings
+    )
 
 @app.route("/checkout", methods=["POST"])
 @login_required
@@ -555,17 +624,26 @@ def checkout():
             items_price += product.price * qty
             order_items.append({"name": product.name, "price": product.price, "qty": qty})
 
+    # حساب الخصم النهائي عند الدفع
+    discount_amount = 0.0
+    if session.get('applied_coupon') == "Anything Shop 10":
+        discount_amount = items_price * 0.10
+
     settings = get_settings()
-    total_price = items_price + settings.shipping_fee
+    total_price = (items_price - discount_amount) + settings.shipping_fee
 
     new_order = Order(
         user_id=current_user.id, phone=phone, address=address, payment_method=payment_method,
         payment_status='Pending' if payment_method == 'Paymob' else 'Cash on Delivery',
-        items_price=items_price, shipping_fee=settings.shipping_fee, total_price=total_price, items_json=json.dumps(order_items)
+        items_price=items_price, discount_amount=discount_amount, shipping_fee=settings.shipping_fee, 
+        total_price=total_price, items_json=json.dumps(order_items)
     )
     db.session.add(new_order)
     db.session.commit()
+    
+    # تفريغ السلة وإلغاء الكود بعد إتمام الطلب
     session['cart'] = {}
+    session.pop('applied_coupon', None)
 
     if payment_method == 'Paymob':
         try:
@@ -589,7 +667,7 @@ def checkout():
             flash(f"حدث خطأ أثناء الاتصال بـ Paymob: {str(e)}")
             return redirect(url_for('my_orders'))
 
-    flash("تم تسجيل طلبك بنجاح!")
+    flash("تم تسجيل طلبك بنجاح والاستفادة من الخصم!")
     return redirect(url_for('my_orders'))
 
 @app.route("/login/google")
@@ -619,8 +697,8 @@ def google_callback():
             db.session.commit()
 
         login_user(user)
-        flash("تم تسجيل الدخول بواسطة Google بنجاح! يرجى مراجعة وتحديث بياناتك في البروفايل.")
-    return redirect(url_for('profile'))
+        flash("تم تسجيل الدخول بواسطة Google بنجاح!")
+    return redirect(url_for('home'))
 
 @app.route("/orders")
 @login_required
