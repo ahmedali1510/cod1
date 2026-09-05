@@ -1265,4 +1265,3 @@ def my_orders():
 @app.route("/admin")
 @login_required
 def admin_panel():
-   
