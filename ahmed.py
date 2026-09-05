@@ -1,14 +1,13 @@
 import os
 import json
 import requests
-import hmac
-import hashlib
 from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from authlib.integrations.flask_client import OAuth
 
 # تحميل متغيرات البيئة من ملف .env
@@ -25,7 +24,7 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# --- إعدادات Google OAuth من ملف .env ---
+# --- إعدادات Google OAuth ---
 app.config['GOOGLE_CLIENT_ID'] = os.environ.get("GOOGLE_CLIENT_ID")
 app.config['GOOGLE_CLIENT_SECRET'] = os.environ.get("GOOGLE_CLIENT_SECRET")
 
@@ -71,6 +70,8 @@ class SiteSettings(db.Model):
     price_color = db.Column(db.String(20), default='#B12704')
     bg_color = db.Column(db.String(20), default='#eaeded')
     text_color = db.Column(db.String(20), default='#0f1111')
+    icon_color = db.Column(db.String(20), default='#ffffff')
+    card_bg_color = db.Column(db.String(20), default='#ffffff')
     font_size = db.Column(db.Integer, default=14)
     shipping_fee = db.Column(db.Float, default=50.0)
     logo_url = db.Column(db.String(500), nullable=True)
@@ -83,7 +84,6 @@ class Order(db.Model):
     payment_method = db.Column(db.String(50), nullable=False)
     payment_status = db.Column(db.String(50), default='Pending')
     items_price = db.Column(db.Float, nullable=False)
-    discount_amount = db.Column(db.Float, nullable=False, default=0.0)
     shipping_fee = db.Column(db.Float, nullable=False, default=50.0)
     total_price = db.Column(db.Float, nullable=False)
     items_json = db.Column(db.Text, nullable=False)
@@ -92,6 +92,7 @@ class Order(db.Model):
 
 class SupportMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     session_id = db.Column(db.String(255), nullable=False)
     sender_type = db.Column(db.String(20), nullable=False)
     message = db.Column(db.Text, nullable=False)
@@ -112,7 +113,6 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anything Shop - متجر احترافي</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='yg' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23fff200'/><stop offset='100%' stop-color='%23ff9900'/></linearGradient><linearGradient id='bg' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23131921'/><stop offset='100%' stop-color='%23232f3e'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23bg)'/><path d='M50 18 L78 75 L63 75 L50 42 L37 75 L22 75 Z' fill='url(%23yg)' filter='drop-shadow(2px 4px 6px rgba(0,0,0,0.5))'/><polygon points='50,30 58,55 42,55' fill='%23131921'/></svg>">
     <style>
         :root {
             --header-bg: {{ settings.header_color }};
@@ -120,6 +120,8 @@ HTML_TEMPLATE = """
             --price-color: {{ settings.price_color }};
             --bg-color: {{ settings.bg_color }};
             --text-color: {{ settings.text_color }};
+            --icon-color: {{ settings.icon_color }};
+            --card-bg: {{ settings.card_bg_color }};
             --font-size: {{ settings.font_size }}px;
         }
         * { box-sizing: border-box; }
@@ -138,10 +140,10 @@ HTML_TEMPLATE = """
         
         .search-bar { flex-grow:1; max-width:500px; display:flex; min-width: 200px; }
         .search-bar input { width:100%; padding:8px 10px; border:none; border-radius:0 4px 4px 0; font-size:13px; outline:none; }
-        .search-bar button { background: var(--primary-color); border:none; padding:8px 12px; border-radius:4px 0 0 4px; cursor:pointer; font-weight:bold; font-size: 13px; }
+        .search-bar button { background: var(--primary-color); border:none; padding:8px 12px; border-radius:4px 0 0 4px; cursor:pointer; font-weight:bold; font-size: 13px; color: var(--text-color); }
         
         .nav-right { display:flex; align-items:center; gap:8px; white-space:nowrap; flex-wrap: wrap; }
-        .nav-btn { background:#232f3e; color:white; padding:6px 12px; border-radius:4px; text-decoration:none; font-weight:bold; border:1px solid #d5d9d9; position: relative; font-size: 13px; }
+        .nav-btn { background:#232f3e; color: var(--icon-color); padding:6px 12px; border-radius:4px; text-decoration:none; font-weight:bold; border:1px solid #d5d9d9; position: relative; font-size: 13px; }
         .admin-btn { background: var(--primary-color); color:black; }
         
         .badge-notification {
@@ -150,42 +152,40 @@ HTML_TEMPLATE = """
         }
 
         .nav-categories { background:#232f3e; padding:8px 15px; display:flex; gap:10px; overflow-x:auto; white-space: nowrap; }
-        .nav-categories a { color:white; text-decoration:none; font-weight:500; font-size:13px; padding:4px 8px; border-radius:3px; }
+        .nav-categories a { color: var(--icon-color); text-decoration:none; font-weight:500; font-size:13px; padding:4px 8px; border-radius:3px; }
         .nav-categories a:hover, .nav-categories a.active { background:#37475a; color: var(--primary-color); }
         
         .container { max-width:1300px; margin:15px auto; padding:0 10px; min-height:75vh; }
         .products-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:15px; }
-        .card { background:white; border:1px solid #e7e7e7; border-radius:8px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; color: #0f1111; }
+        .card { background: var(--card-bg); border:1px solid #e7e7e7; border-radius:8px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; }
         .card img { width:100%; height:140px; object-fit:cover; border-radius:4px; margin-bottom:8px; }
         .card-title { font-size:14px; font-weight:600; margin-bottom:5px; height:38px; overflow:hidden; }
         .card-price { font-size:16px; color: var(--price-color); font-weight:bold; margin-bottom:8px; }
         .btn-add { background:#ffd814; border:1px solid #FCD200; border-radius:20px; padding:7px; width:100%; font-weight:bold; cursor:pointer; font-size: 13px; }
         
-        .cart-table, .orders-table, .admin-table { width:100%; background:white; color:#333; border-collapse:collapse; margin-bottom:20px; border-radius:8px; overflow:hidden; font-size: 13px; }
+        .cart-table, .orders-table, .admin-table { width:100%; background: var(--card-bg); border-collapse:collapse; margin-bottom:20px; border-radius:8px; overflow:hidden; font-size: 13px; }
         .cart-table th, .cart-table td, .orders-table th, .orders-table td, .admin-table th, .admin-table td { padding:10px; text-align:right; border-bottom:1px solid #ddd; }
         
-        .checkout-form, .auth-form, .admin-card { background:white; color:#333; padding:18px; border-radius:8px; margin-bottom:20px; border:1px solid #ddd; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+        .checkout-form, .auth-form, .admin-card { background: var(--card-bg); padding:18px; border-radius:8px; margin-bottom:20px; border:1px solid #ddd; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
         .form-group { margin-bottom:12px; }
         .form-group label { display:block; margin-bottom:4px; font-weight:bold; font-size: 13px; }
         .form-group input, .form-group textarea, .form-group select { width:100%; padding:9px; border:1px solid #ccc; border-radius:4px; font-size: 14px; }
         
         .btn-submit { background: var(--primary-color); color:black; border:none; padding:10px; border-radius:4px; font-weight:bold; width:100%; cursor:pointer; font-size:15px; }
+        .btn-google { display:flex; align-items:center; justify-content:center; gap:10px; background:#4285F4; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; width:100%; text-decoration:none; margin-top:10px; font-size:14px; }
         .btn-danger { background:#dc3545; color:white; padding:5px 10px; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:11px; }
         .btn-edit { background:#ffc107; color:black; padding:5px 10px; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:11px; margin-left:4px; }
         
-        /* الأقسام المخفية والقابلة للطي في الأدمن */
-        .admin-section-box { background: #fff; border: 1px solid #ccc; border-radius: 8px; margin-bottom: 15px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .admin-section-box { background: var(--card-bg); border: 1px solid #ccc; border-radius: 8px; margin-bottom: 15px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .admin-section-header { background: #232f3e; color: #fff; padding: 12px 18px; font-weight: bold; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
         .admin-section-header:hover { background: #37475a; }
-        .admin-section-content { padding: 18px; display: none; background: #fff; border-top: 1px solid #ddd; }
+        .admin-section-content { padding: 18px; display: none; border-top: 1px solid #ddd; }
         .admin-section-content.open { display: block; }
 
-        /* نظام ترقيم الصفحات (Pagination) الموحد */
         .pagination-box { display: flex; justify-content: center; gap: 6px; margin: 25px 0; }
         .pagination-box a, .pagination-box span { padding: 8px 14px; border: 1px solid #ccc; background: #fff; color: #333; text-decoration: none; border-radius: 4px; font-size: 13px; font-weight: bold; }
         .pagination-box a.active, .pagination-box span.active { background: var(--primary-color); color: #000; border-color: #d4af37; }
 
-        /* تشات الأدمن */
         .live-chat-admin-container { display: flex; height: 450px; background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 10px; }
         .chat-sidebar { width: 280px; background: #f8f9fa; border-left: 1px solid #ddd; display: flex; flex-direction: column; }
         .chat-sidebar-list { flex: 1; overflow-y: auto; }
@@ -200,8 +200,7 @@ HTML_TEMPLATE = """
         .admin-reply-box input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 12px; }
         .admin-reply-box button { padding: 7px 14px; background: #0084ff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; }
 
-        /* زر الشات العائم والنافذة المنبثقة للعميل */
-        .chat-widget-btn { position: fixed; bottom: 20px; left: 20px; background: var(--primary-color); color: #000; width: 52px; height: 52px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; z-index: 999; font-weight: bold; text-decoration: none; border: 2px solid white; font-size: 18px; }
+        .chat-widget-btn { position: fixed; bottom: 20px; left: 20px; background: var(--primary-color); color: #000; width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; z-index: 999; font-weight: bold; text-decoration: none; border: 2px solid white; font-size: 18px; }
         .chat-popup { position: fixed; bottom: 82px; left: 15px; width: 320px; max-width: calc(100vw - 30px); height: 400px; background: white; border-radius: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.2); z-index: 1000; display: none; flex-direction: column; overflow: hidden; border: 1px solid #ccc; }
         .chat-header { background: var(--header-bg); color: white; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 13px; }
         .chat-header button { background: none; border: none; color: white; font-size: 15px; cursor: pointer; }
@@ -216,12 +215,6 @@ HTML_TEMPLATE = """
         
         footer { background: var(--header-bg); color:white; padding:20px 15px; margin-top:30px; border-top:3px solid var(--primary-color); text-align:center; }
         .alert { background:#d4edda; color:#155724; padding:10px; border-radius:4px; margin-bottom:12px; font-size: 13px; }
-        
-        @media(max-width: 768px) {
-            .products-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-            .live-chat-admin-container { flex-direction: column; height: 400px; }
-            .chat-sidebar { width: 100%; height: 120px; }
-        }
     </style>
 </head>
 <body>
@@ -303,7 +296,6 @@ HTML_TEMPLATE = """
                 {% endfor %}
             </div>
 
-            <!-- نظام ترقيم صفحات المنتجات (10 منتجات لكل صفحة) -->
             {% if total_product_pages > 1 %}
             <div class="pagination-box">
                 {% for p in range(1, total_product_pages + 1) %}
@@ -317,15 +309,14 @@ HTML_TEMPLATE = """
                 {% endfor %}
             </div>
             {% endif %}
-
         {% else %}
-            <p style="font-size:16px;">لم يتم العثور على منتجات.</p>
+            <p>لم يتم العثور على منتجات.</p>
         {% endif %}
 
     {% elif page == 'register' %}
         <div class="auth-form" style="max-width:450px; margin:auto;">
             <h2>إنشاء حساب جديد</h2>
-            <form action="/register" method="POST" enctype="multipart/form-data">
+            <form action="/register" method="POST">
                 <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" required></div>
                 <div class="form-group"><label>الاسم الأخير</label><input type="text" name="last_name" required></div>
                 <div class="form-group"><label>البريد الإلكتروني</label><input type="email" name="email" required></div>
@@ -335,6 +326,7 @@ HTML_TEMPLATE = """
                 <div class="form-group"><label>تاريخ الميلاد</label><input type="date" name="birth_date" required></div>
                 <button type="submit" class="btn-submit">تسجيل الحساب</button>
             </form>
+            <a href="/login/google" class="btn-google">🌐 التسجيل بواسطة جوجل</a>
         </div>
 
     {% elif page == 'profile' %}
@@ -362,7 +354,7 @@ HTML_TEMPLATE = """
                     {% endfor %}
                 </tbody>
             </table>
-            <div style="text-align:left; background:white; padding:12px; border-radius:8px; margin-bottom:15px;">
+            <div style="text-align:left; background:var(--card-bg); padding:12px; border-radius:8px; margin-bottom:15px;">
                 <p>مصاريف الشحن: <strong>{{ "%.2f"|format(settings.shipping_fee) }} ج.م</strong></p>
                 <h3 style="color: var(--price-color);">الإجمالي النهائي: {{ "%.2f"|format(final_total) }} ج.م</h3>
             </div>
@@ -382,7 +374,7 @@ HTML_TEMPLATE = """
     {% elif page == 'orders' %}
         <h2>طلباتي</h2>
         {% for order in orders %}
-            <div style="background:white; color:#333; padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+            <div style="background:var(--card-bg); padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
                 <h4>طلب رقم #{{ order.id }} - {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</h4>
                 <p><strong>حالة الدفع:</strong> {{ order.payment_status }}</p>
                 <p><strong>العنوان:</strong> {{ order.address }}</p>
@@ -393,10 +385,9 @@ HTML_TEMPLATE = """
     {% elif page == 'admin' %}
         <h2>⚙️ لوحة تحكم الأدمن</h2>
 
-        <!-- 1. قسم إدارة المحادثات الحية -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-chat')">
-                <span>💬 المحادثات الحية والدعم الفني</span>
+                <span>💬 المحادثات الحية والدعم الفني (للعملاء المسجلين فقط)</span>
                 <span>▼</span>
             </div>
             <div id="sec-chat" class="admin-section-content {% if active_session %}open{% endif %}">
@@ -406,7 +397,7 @@ HTML_TEMPLATE = """
                             {% for conv in paged_chats %}
                                 <a href="/admin?session={{ conv.session_id }}&chat_page={{ chat_page }}" class="client-chat-item {% if active_session == conv.session_id %}active{% endif %}">
                                     <div>
-                                        <strong>{{ conv.email or 'زائر' }}</strong><br>
+                                        <strong>{{ conv.email }}</strong><br>
                                         <small>{{ conv.last_time[:16] }}</small>
                                     </div>
                                     {% if conv.unread_count > 0 %}
@@ -438,50 +429,39 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- 2. قسم إدارة الأوردرات -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-orders')">
-                <span>📦 إدارة الأوردرات والطلبات (إجمالي: {{ total_orders_count }})</span>
+                <span>📦 إدارة الأوردرات (إجمالي: {{ total_orders_count }})</span>
                 <span>▼</span>
             </div>
             <div id="sec-orders" class="admin-section-content">
-                <div style="overflow-x: auto;">
-                    <table class="admin-table">
-                        <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
-                        <tbody>
-                            {% for ord in paged_orders %}
-                            <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
-                                <td>#{{ ord.id }}</td>
-                                <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
-                                <td>{{ ord.phone }}</td>
-                                <td>{{ ord.address }}</td>
-                                <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
-                                <td>{{ ord.payment_status }}</td>
-                                <td><a href="/admin/mark-order-read/{{ ord.id }}" style="color:#0084ff; text-decoration:none;">تحديد كمقروء</a></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% if total_order_pages > 1 %}
-                <div class="pagination-box">
-                    {% for p in range(1, total_order_pages + 1) %}
-                        <a href="/admin?order_page={{ p }}" class="{% if order_page == p %}active{% endif %}">{{ p }}</a>
-                    {% endfor %}
-                </div>
-                {% endif %}
+                <table class="admin-table">
+                    <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
+                    <tbody>
+                        {% for ord in paged_orders %}
+                        <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
+                            <td>#{{ ord.id }}</td>
+                            <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
+                            <td>{{ ord.phone }}</td>
+                            <td>{{ ord.address }}</td>
+                            <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
+                            <td>{{ ord.payment_status }}</td>
+                            <td><a href="/admin/mark-order-read/{{ ord.id }}" style="color:#0084ff; text-decoration:none;">تحديد كمقروء</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        <!-- 3. قسم إدارة الأقسام -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-categories')">
-                <span>📂 إدارة أقسام الموقع (إضافة، تعديل، حذف)</span>
+                <span>📂 إدارة أقسام الموقع</span>
                 <span>▼</span>
             </div>
             <div id="sec-categories" class="admin-section-content">
                 <form action="/admin/add-category" method="POST" style="display:flex; gap:10px; margin-bottom:15px;">
-                    <input type="text" name="cat_name" placeholder="اسم القسم الجديد (مثل: أحذية، إلكترونيات، لبان...)" required style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                    <input type="text" name="cat_name" placeholder="اسم القسم الجديد..." required style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
                     <button type="submit" style="background:var(--primary-color); border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">إضافة قسم</button>
                 </form>
                 <ul style="list-style:none; padding:0;">
@@ -489,7 +469,7 @@ HTML_TEMPLATE = """
                         <li style="display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid #eee;">
                             <form action="/admin/edit-category/{{ cat.id }}" method="POST" style="display:flex; gap:8px; flex:1; align-items:center;">
                                 <input type="text" name="new_name" value="{{ cat.name }}" required style="padding:5px; border:1px solid #ccc; border-radius:4px; width:200px;">
-                                <button type="submit" class="btn-edit" style="font-size:11px;">تحديث الاسم</button>
+                                <button type="submit" class="btn-edit">تحديث الاسم</button>
                             </form>
                             <a href="/admin/delete-category/{{ cat.id }}" class="btn-danger" onclick="return confirm('حذف القسم؟')">حذف</a>
                         </li>
@@ -498,72 +478,74 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- 4. قسم إضافة منتج جديد (يدعم رفع الصور أو الروابط) -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-add-prod')">
-                <span>➕ إضافة منتج جديد (مع رفع الصور)</span>
+                <span>➕ إضافة منتج جديد</span>
                 <span>▼</span>
             </div>
             <div id="sec-add-prod" class="admin-section-content">
                 <form action="/admin/add-product" method="POST" enctype="multipart/form-data">
                     <div class="form-group"><label>اسم المنتج</label><input type="text" name="name" required></div>
                     <div class="form-group"><label>السعر (ج.م)</label><input type="number" step="0.01" name="price" required></div>
-                    <div class="form-group">
-                        <label>القسم</label>
+                    <div class="form-group"><label>القسم</label>
                         <select name="category" required style="width:100%; padding:9px; border:1px solid #ccc; border-radius:4px;">
-                            {% for cat in custom_categories %}
-                                <option value="{{ cat.name }}">{{ cat.name }}</option>
-                            {% endfor %}
+                            {% for cat in custom_categories %}<option value="{{ cat.name }}">{{ cat.name }}</option>{% endfor %}
                         </select>
                     </div>
-                    <div class="form-group"><label>رفع صورة المنتج مباشرة (أو ضع رابط الصورة أدناه)</label><input type="file" name="image_file" accept="image/*"></div>
-                    <div class="form-group"><label>أو رابط صورة خارجي (Image URL)</label><input type="url" name="image_url"></div>
+                    <div class="form-group"><label>رفع صورة المنتج</label><input type="file" name="image_file" accept="image/*"></div>
+                    <div class="form-group"><label>أو رابط صورة خارجي</label><input type="url" name="image_url"></div>
                     <button type="submit" class="btn-submit">حفظ المنتج</button>
                 </form>
             </div>
         </div>
 
-        <!-- 5. قسم إدارة المنتجات -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-manage-prod')">
                 <span>🛠️ إدارة وتعديل المنتجات</span>
                 <span>▼</span>
             </div>
             <div id="sec-manage-prod" class="admin-section-content">
-                <div style="overflow-x: auto;">
-                    <table class="admin-table">
-                        <thead><tr><th>#</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>إجراءات</th></tr></thead>
-                        <tbody>
-                            {% for p in all_products %}
-                            <tr>
-                                <td>{{ p.id }}</td>
-                                <td><b>{{ p.name }}</b></td><td>{{ p.category }}</td><td>{{ p.price }} ج.م</td>
-                                <td>
-                                    <a href="/admin/edit-product/{{ p.id }}" class="btn-edit">تعديل</a>
-                                    <a href="/admin/delete-product/{{ p.id }}" class="btn-danger" onclick="return confirm('تأكيد الحذف؟')">حذف</a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <table class="admin-table">
+                    <thead><tr><th>#</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>إجراءات</th></tr></thead>
+                    <tbody>
+                        {% for p in all_products %}
+                        <tr>
+                            <td>{{ p.id }}</td>
+                            <td><b>{{ p.name }}</b></td><td>{{ p.category }}</td><td>{{ p.price }} ج.م</td>
+                            <td>
+                                <a href="/admin/edit-product/{{ p.id }}" class="btn-edit">تعديل</a>
+                                <a href="/admin/delete-product/{{ p.id }}" class="btn-danger" onclick="return confirm('تأكيد الحذف؟')">حذف</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
 
-        <!-- 6. قسم تصميم الموقع وتغيير الألوان والشعار (رفع الشعار مباشرة) -->
+        <!-- قسم التحكم الشامل في الألوان والأيقونات والديزاين -->
         <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-design')">
-                <span>🎨 تصميم الموقع وتغيير الألوان والشعار (رفع شعار مباشر)</span>
+                <span>🎨 التحكم الكامل في ألوان الديزاين، الأيقونات، والشعار</span>
                 <span>▼</span>
             </div>
             <div id="sec-design" class="admin-section-content">
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
-                    <div class="form-group"><label>رفع شعار الموقع (Logo File)</label><input type="file" name="logo_file" accept="image/*"></div>
-                    <div class="form-group"><label>أو رابط الشعار الجديد (Logo URL)</label><input type="url" name="logo_url" value="{{ settings.logo_url or '' }}" placeholder="https://example.com/logo.png"></div>
-                    <div class="form-group"><label>لون الهيدر</label><input type="color" name="header_color" value="{{ settings.header_color }}"></div>
-                    <div class="form-group"><label>اللون الرئيسي</label><input type="color" name="primary_color" value="{{ settings.primary_color }}"></div>
-                    <div class="form-group"><label>مصاريف الشحن</label><input type="number" step="0.01" name="shipping_fee" value="{{ settings.shipping_fee }}" required></div>
-                    <button type="submit" class="btn-submit">حفظ التصميم والألوان والشعار</button>
+                    <div class="form-group"><label>رفع شعار الموقع (Logo)</label><input type="file" name="logo_file" accept="image/*"></div>
+                    <div class="form-group"><label>أو رابط الشعار (Logo URL)</label><input type="url" name="logo_url" value="{{ settings.logo_url or '' }}"></div>
+                    
+                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+                        <div class="form-group"><label>لون الهيدر</label><input type="color" name="header_color" value="{{ settings.header_color }}"></div>
+                        <div class="form-group"><label>اللون الرئيسي</label><input type="color" name="primary_color" value="{{ settings.primary_color }}"></div>
+                        <div class="form-group"><label>لون الأسعار</label><input type="color" name="price_color" value="{{ settings.price_color }}"></div>
+                        <div class="form-group"><label>لون خلفية الموقع العامة</label><input type="color" name="bg_color" value="{{ settings.bg_color }}"></div>
+                        <div class="form-group"><label>لون النصوص</label><input type="color" name="text_color" value="{{ settings.text_color }}"></div>
+                        <div class="form-group"><label>لون الأيقونات والروابط العلوية</label><input type="color" name="icon_color" value="{{ settings.icon_color }}"></div>
+                        <div class="form-group"><label>لون خلفية البطاقات (Cards)</label><input type="color" name="card_bg_color" value="{{ settings.card_bg_color }}"></div>
+                    </div>
+
+                    <div class="form-group" style="margin-top:10px;"><label>مصاريف الشحن</label><input type="number" step="0.01" name="shipping_fee" value="{{ settings.shipping_fee }}" required></div>
+                    <button type="submit" class="btn-submit">حفظ كافة تعديلات التصميم والألوان</button>
                 </form>
             </div>
         </div>
@@ -574,16 +556,15 @@ HTML_TEMPLATE = """
             <form action="/admin/edit-product/{{ edit_prod.id }}" method="POST" enctype="multipart/form-data">
                 <div class="form-group"><label>الاسم</label><input type="text" name="name" value="{{ edit_prod.name }}" required></div>
                 <div class="form-group"><label>السعر</label><input type="number" step="0.01" name="price" value="{{ edit_prod.price }}" required></div>
-                <div class="form-group">
-                    <label>القسم</label>
+                <div class="form-group"><label>القسم</label>
                     <select name="category" required style="width:100%; padding:9px; border:1px solid #ccc; border-radius:4px;">
                         {% for cat in custom_categories %}
                             <option value="{{ cat.name }}" {% if edit_prod.category == cat.name %}selected{% endif %}>{{ cat.name }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="form-group"><label>رفع صورة جديدة (اختياري)</label><input type="file" name="image_file" accept="image/*"></div>
-                <div class="form-group"><label>رابط الصورة الحالي / الجديد</label><input type="url" name="image_url" value="{{ edit_prod.image }}"></div>
+                <div class="form-group"><label>رفع صورة جديدة</label><input type="file" name="image_file" accept="image/*"></div>
+                <div class="form-group"><label>رابط الصورة الحالي</label><input type="url" name="image_url" value="{{ edit_prod.image }}"></div>
                 <button type="submit" class="btn-submit">حفظ التعديلات</button>
             </form>
         </div>
@@ -596,11 +577,13 @@ HTML_TEMPLATE = """
                 <div class="form-group"><label>كلمة المرور</label><input type="password" name="password" required></div>
                 <button type="submit" class="btn-submit">تسجيل الدخول</button>
             </form>
+            <a href="/login/google" class="btn-google">🌐 الدخول بواسطة جوجل</a>
         </div>
     {% endif %}
 </div>
 
-<!-- زر الشات العائم والنافذة -->
+<!-- زر الشات العائم (متاح فقط للمسجلين) -->
+{% if current_user.is_authenticated %}
 <div id="support-chat-btn" class="chat-widget-btn">💬</div>
 <div id="support-chat-window" class="chat-popup">
     <div class="chat-header"><span>الدعم الفني المباشر</span><button id="close-chat">✕</button></div>
@@ -612,6 +595,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
 </div>
+{% endif %}
 
 <script>
 function toggleSection(id) {
@@ -620,12 +604,8 @@ function toggleSection(id) {
 }
 
 document.addEventListener("DOMContentLoaded", function() {
-    let sessionId = localStorage.getItem('support_session_id');
-    if (!sessionId) {
-        sessionId = 'session_' + Math.random().toString(36).substring(2) + Date.now();
-        localStorage.setItem('support_session_id', sessionId);
-    }
-
+    {% if current_user.is_authenticated %}
+    let sessionId = 'user_session_{{ current_user.id }}';
     const btn = document.getElementById('support-chat-btn');
     const win = document.getElementById('support-chat-window');
     const closeBtn = document.getElementById('close-chat');
@@ -666,13 +646,14 @@ document.addEventListener("DOMContentLoaded", function() {
         fd.append('action', 'client_send');
         fd.append('session_id', sessionId);
         fd.append('message', text);
-        fd.append('client_email', '{{ current_user.email if current_user.is_authenticated else "زائر" }}');
-        fd.append('client_phone', '{{ current_user.phone if current_user.is_authenticated else "0000" }}');
+        fd.append('client_email', '{{ current_user.email }}');
+        fd.append('client_phone', '{{ current_user.phone or "غير محدد" }}');
         
         fetch('/api/chat/send', { method: 'POST', body: fd }).then(res => res.json()).then(data => {
             if (data.status === 'success') { input.value = ''; fetchMsgs(); }
         });
     }
+    {% endif %}
 
     const adminMsgBox = document.getElementById('adminMsgBox');
     const adminReplyForm = document.getElementById('adminReplyForm');
@@ -721,9 +702,6 @@ document.addEventListener("DOMContentLoaded", function() {
 """
 
 # --- مساعد رفع الصور ---
-import os
-from werkzeug.utils import secure_filename
-
 UPLOAD_FOLDER = 'static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -732,14 +710,12 @@ def save_uploaded_file(file_storage):
         if not os.path.exists(UPLOAD_FOLDER):
             os.makedirs(UPLOAD_FOLDER)
         filename = secure_filename(file_storage.filename)
-        # لتفادي تكرار الأسماء
         unique_filename = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
         filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
         file_storage.save(filepath)
         return f"/{filepath}"
     return None
 
-# --- مساعدون ---
 def get_cart_count():
     return sum(session.get('cart', {}).values())
 
@@ -761,7 +737,7 @@ def get_categories_list():
         cats = Category.query.all()
     return [c.name for c in cats]
 
-# --- المسارات (Routes) ---
+# --- المسارات الأساسية ---
 @app.route("/")
 def home():
     page_num = int(request.args.get('page', 1))
@@ -812,25 +788,61 @@ def search():
         cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="", settings=get_settings()
     )
 
+# --- مسارات Google OAuth ---
+@app.route('/login/google')
+def google_login():
+    redirect_uri = url_for('google_auth', _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+@app.route('/login/google/callback')
+def google_auth():
+    token = google.authorize_access_token()
+    user_info = token.get('userinfo')
+    if not user_info:
+        resp = google.get('userinfo')
+        user_info = resp.json()
+    
+    email = user_info.get('email')
+    first_name = user_info.get('given_name', 'Google')
+    last_name = user_info.get('family_name', 'User')
+    avatar = user_info.get('picture')
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(
+            first_name=first_name, last_name=last_name, email=email,
+            phone="01000000000", address="غير محدد", avatar_url=avatar, auth_provider='google'
+        )
+        db.session.add(user)
+        db.session.commit()
+    
+    login_user(user)
+    return redirect(url_for('home'))
+
+# --- مسارات الشات (مخصصة للمسجلين فقط) ---
 @app.route("/api/chat/send", methods=["POST"])
+@login_required
 def api_chat_send():
     action, session_id, message = request.form.get("action"), request.form.get("session_id"), request.form.get("message", "").strip()
     if not session_id or not message: return jsonify({"status": "error"})
     
     if action == "client_send":
         db.session.add(SupportMessage(
-            session_id=session_id, sender_type="client", message=message, 
-            client_email=request.form.get("client_email"), client_phone=request.form.get("client_phone"), is_read=False
+            user_id=current_user.id, session_id=session_id, sender_type="client", message=message, 
+            client_email=current_user.email, client_phone=current_user.phone, is_read=False
         ))
         db.session.commit()
         return jsonify({"status": "success"})
-    elif action == "admin_send" and current_user.is_authenticated and current_user.is_admin:
-        db.session.add(SupportMessage(session_id=session_id, sender_type="admin", message=message, is_read=True))
+    elif action == "admin_send" and current_user.is_admin:
+        client_msg = SupportMessage.query.filter_by(session_id=session_id).first()
+        u_id = client_msg.user_id if client_msg else current_user.id
+        db.session.add(SupportMessage(user_id=u_id, session_id=session_id, sender_type="admin", message=message, is_read=True))
         db.session.commit()
         return jsonify({"status": "success"})
     return jsonify({"status": "error"})
 
 @app.route("/api/chat/messages", methods=["GET"])
+@login_required
 def api_chat_messages():
     session_id = request.args.get("session_id")
     if not session_id: return jsonify({"status": "error", "messages": []})
@@ -941,7 +953,7 @@ def admin_panel():
         first_msg = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client').first()
         chat_sessions.append({
             "session_id": s.session_id, "last_time": str(s.last_time), "unread_count": unread_cnt,
-            "email": first_msg.client_email if first_msg else "زائر"
+            "email": first_msg.client_email if first_msg else "عميل مسجل"
         })
     
     total_chat_pages = (len(chat_sessions) + chats_per_page - 1) // chats_per_page
@@ -1005,8 +1017,6 @@ def admin_delete_category(cat_id):
 @login_required
 def admin_add_product():
     if not current_user.is_admin: return redirect(url_for('home'))
-    
-    # التعامل مع رفع الصورة مباشرة أو استخدام الرابط
     image_url = save_uploaded_file(request.files.get("image_file"))
     if not image_url:
         image_url = request.form.get("image_url", "https://via.placeholder.com/400")
@@ -1056,6 +1066,11 @@ def admin_update_settings():
     settings = get_settings()
     settings.header_color = request.form.get("header_color")
     settings.primary_color = request.form.get("primary_color")
+    settings.price_color = request.form.get("price_color")
+    settings.bg_color = request.form.get("bg_color")
+    settings.text_color = request.form.get("text_color")
+    settings.icon_color = request.form.get("icon_color")
+    settings.card_bg_color = request.form.get("card_bg_color")
     settings.shipping_fee = float(request.form.get("shipping_fee"))
     
     uploaded_logo = save_uploaded_file(request.files.get("logo_file"))
@@ -1065,7 +1080,7 @@ def admin_update_settings():
         settings.logo_url = request.form.get("logo_url")
         
     db.session.commit()
-    flash("تم تحديث إعدادات التصميم والألوان والشعار بنجاح!")
+    flash("تم تحديث إعدادات التصميم بالكامل بنجاح!")
     return redirect(url_for('admin_panel'))
 
 @app.route("/login", methods=["GET", "POST"])
