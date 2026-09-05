@@ -83,22 +83,22 @@ class Order(db.Model):
     total_price = db.Column(db.Float, nullable=False)
     items_json = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    is_read = db.Column(db.Boolean, default=False) # لمعرفة هل الأوردر تم رؤيته من الأدمن
+    is_read = db.Column(db.Boolean, default=False)
 
 # نموذج رسائل الشات الحي الفوري
 class SupportMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     session_id = db.Column(db.String(255), nullable=False)
-    sender_type = db.Column(db.String(20), nullable=False) # 'client' أو 'admin'
+    sender_type = db.Column(db.String(20), nullable=False)
     message = db.Column(db.Text, nullable=False)
-    is_read = db.Column(db.Boolean, default=False) # لمعرفة هل الرسالة مقروءة من الأدمن
+    is_read = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# --- HTML / CSS Template (يشمل نظام الإشعارات والشارات الحمراء) ---
+# --- HTML / CSS Template (معدل بالكامل ليكون متجاوباً على الهواتف) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -106,7 +106,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anything Shop - متجر احترافي</title>
-    <link rel="icon" type="image/png" href="https://share.google/images/s7Wap4Eb8TQBgRHj2">
+    <link rel="icon" type="image/png" href="https://i.ibb.co/3m3v4z0/anything-shop-logo.png">
     <style>
         :root {
             --header-bg: {{ settings.header_color }};
@@ -116,18 +116,21 @@ HTML_TEMPLATE = """
             --text-color: {{ settings.text_color }};
             --font-size: {{ settings.font_size }}px;
         }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin:0; padding:0; background: var(--bg-color); color: var(--text-color); font-size: var(--font-size); text-align:right; }
-        header { background: var(--header-bg); color:white; padding:12px 20px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; gap:15px; }
-        .logo { font-size:24px; font-weight:bold; color: var(--primary-color); text-decoration:none; white-space:nowrap; display: flex; align-items: center; gap: 8px; }
-        .logo img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; }
-        .search-bar { flex-grow:1; max-width:600px; display:flex; }
-        .search-bar input { width:100%; padding:9px 12px; border:none; border-radius:0 4px 4px 0; font-size:14px; outline:none; }
-        .search-bar button { background: var(--primary-color); border:none; padding:9px 15px; border-radius:4px 0 0 4px; cursor:pointer; font-weight:bold; }
-        .nav-right { display:flex; align-items:center; gap:12px; white-space:nowrap; }
-        .nav-btn { background:#232f3e; color:white; padding:8px 15px; border-radius:4px; text-decoration:none; font-weight:bold; border:1px solid #d5d9d9; position: relative; }
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin:0; padding:0; background: var(--bg-color); color: var(--text-color); font-size: var(--font-size); text-align:right; overflow-x: hidden; }
+        
+        header { background: var(--header-bg); color:white; padding:10px 15px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; gap:10px; flex-wrap: wrap; }
+        .logo { font-size:20px; font-weight:bold; color: var(--primary-color); text-decoration:none; white-space:nowrap; display: flex; align-items: center; gap: 6px; }
+        .logo img { width: 28px; height: 28px; object-fit: contain; border-radius: 4px; }
+        
+        .search-bar { flex-grow:1; max-width:500px; display:flex; min-width: 200px; }
+        .search-bar input { width:100%; padding:8px 10px; border:none; border-radius:0 4px 4px 0; font-size:13px; outline:none; }
+        .search-bar button { background: var(--primary-color); border:none; padding:8px 12px; border-radius:4px 0 0 4px; cursor:pointer; font-weight:bold; font-size: 13px; }
+        
+        .nav-right { display:flex; align-items:center; gap:8px; white-space:nowrap; flex-wrap: wrap; }
+        .nav-btn { background:#232f3e; color:white; padding:6px 12px; border-radius:4px; text-decoration:none; font-weight:bold; border:1px solid #d5d9d9; position: relative; font-size: 13px; }
         .admin-btn { background: var(--primary-color); color:black; }
         
-        /* تصميم شارة الإشعارات الحمراء (Badge) */
         .badge-notification {
             position: absolute;
             top: -6px;
@@ -135,86 +138,113 @@ HTML_TEMPLATE = """
             background-color: #ff3b30;
             color: white;
             border-radius: 50%;
-            padding: 2px 6px;
-            font-size: 11px;
+            padding: 2px 5px;
+            font-size: 10px;
             font-weight: bold;
             display: inline-block;
-            min-width: 16px;
+            min-width: 15px;
             text-align: center;
             box-shadow: 0 2px 5px rgba(0,0,0,0.3);
         }
 
-        .nav-categories { background:#232f3e; padding:10px 20px; display:flex; gap:15px; overflow-x:auto; }
-        .nav-categories a { color:white; text-decoration:none; font-weight:500; font-size:14px; padding:5px 10px; border-radius:3px; }
+        .nav-categories { background:#232f3e; padding:8px 15px; display:flex; gap:10px; overflow-x:auto; white-space: nowrap; }
+        .nav-categories::-webkit-scrollbar { height: 4px; }
+        .nav-categories::-webkit-scrollbar-thumb { background: #37475a; border-radius: 2px; }
+        .nav-categories a { color:white; text-decoration:none; font-weight:500; font-size:13px; padding:4px 8px; border-radius:3px; }
         .nav-categories a:hover, .nav-categories a.active { background:#37475a; color: var(--primary-color); }
-        .container { max-width:1300px; margin:20px auto; padding:0 15px; min-height:80vh; }
-        .products-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap:20px; }
-        .card { background:white; border:1px solid #e7e7e7; border-radius:8px; padding:15px; display:flex; flex-direction:column; justify-content:space-between; color: #0f1111; }
-        .card img { width:100%; height:160px; object-fit:cover; border-radius:4px; margin-bottom:10px; }
-        .card-title { font-size:15px; font-weight:600; margin-bottom:5px; height:40px; overflow:hidden; }
-        .card-price { font-size:18px; color: var(--price-color); font-weight:bold; margin-bottom:10px; }
-        .btn-add { background:#ffd814; border:1px solid #FCD200; border-radius:20px; padding:8px; width:100%; font-weight:bold; cursor:pointer; }
+        
+        .container { max-width:1300px; margin:15px auto; padding:0 10px; min-height:75vh; }
+        .products-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:15px; }
+        .card { background:white; border:1px solid #e7e7e7; border-radius:8px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; color: #0f1111; }
+        .card img { width:100%; height:140px; object-fit:cover; border-radius:4px; margin-bottom:8px; }
+        .card-title { font-size:14px; font-weight:600; margin-bottom:5px; height:38px; overflow:hidden; }
+        .card-price { font-size:16px; color: var(--price-color); font-weight:bold; margin-bottom:8px; }
+        .btn-add { background:#ffd814; border:1px solid #FCD200; border-radius:20px; padding:7px; width:100%; font-weight:bold; cursor:pointer; font-size: 13px; }
         .btn-add:hover { background:#f7ca00; }
-        .cart-table, .orders-table, .admin-table { width:100%; background:white; color:#333; border-collapse:collapse; margin-bottom:20px; border-radius:8px; overflow:hidden; }
-        .cart-table th, .cart-table td, .orders-table th, .orders-table td, .admin-table th, .admin-table td { padding:12px; text-align:right; border-bottom:1px solid #ddd; }
-        .checkout-form, .auth-form, .admin-card { background:white; color:#333; padding:25px; border-radius:8px; margin-bottom:25px; border:1px solid #ddd; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
-        .form-group { margin-bottom:15px; }
-        .form-group label { display:block; margin-bottom:5px; font-weight:bold; }
-        .form-group input, .form-group textarea, .form-group select { width:100%; padding:10px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; }
-        .btn-submit { background: var(--primary-color); color:black; border:none; padding:10px 20px; border-radius:4px; font-weight:bold; width:100%; cursor:pointer; font-size:16px; }
-        .btn-danger { background:#dc3545; color:white; padding:6px 12px; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:12px; }
-        .btn-edit { background:#ffc107; color:black; padding:6px 12px; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:12px; margin-left:5px; }
-        .btn-social { display:flex; align-items:center; justify-content:center; gap:10px; padding:10px; border-radius:4px; text-decoration:none; font-weight:bold; margin-top:10px; border:1px solid #ccc; background:white; color:#333; }
-        .btn-social img { width:20px; height:20px; }
-        .alert { background:#d4edda; color:#155724; padding:10px; border-radius:4px; margin-bottom:15px; }
-        .promo-banner { background: #fff8e1; border: 2px dashed #ff9900; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
-        .promo-code-box { display: inline-block; background: #232f3e; color: #ffd814; padding: 8px 15px; font-weight: bold; border-radius: 4px; margin: 5px 0; cursor: pointer; letter-spacing: 1px; }
+        
+        .cart-table, .orders-table, .admin-table { width:100%; background:white; color:#333; border-collapse:collapse; margin-bottom:20px; border-radius:8px; overflow:hidden; font-size: 13px; }
+        .cart-table th, .cart-table td, .orders-table th, .orders-table td, .admin-table th, .admin-table td { padding:10px; text-align:right; border-bottom:1px solid #ddd; }
+        
+        .checkout-form, .auth-form, .admin-card { background:white; color:#333; padding:18px; border-radius:8px; margin-bottom:20px; border:1px solid #ddd; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+        .form-group { margin-bottom:12px; }
+        .form-group label { display:block; margin-bottom:4px; font-weight:bold; font-size: 13px; }
+        .form-group input, .form-group textarea, .form-group select { width:100%; padding:9px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; font-size: 14px; }
+        
+        .btn-submit { background: var(--primary-color); color:black; border:none; padding:10px; border-radius:4px; font-weight:bold; width:100%; cursor:pointer; font-size:15px; }
+        .btn-danger { background:#dc3545; color:white; padding:5px 10px; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:11px; }
+        .btn-edit { background:#ffc107; color:black; padding:5px 10px; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:11px; margin-left:4px; }
+        
+        .btn-social { display:flex; align-items:center; justify-content:center; gap:8px; padding:9px; border-radius:4px; text-decoration:none; font-weight:bold; margin-top:10px; border:1px solid #ccc; background:white; color:#333; font-size: 13px; }
+        .btn-social img { width:18px; height:18px; }
+        
+        .alert { background:#d4edda; color:#155724; padding:10px; border-radius:4px; margin-bottom:12px; font-size: 13px; }
+        .promo-banner { background: #fff8e1; border: 2px dashed #ff9900; padding: 12px; border-radius: 8px; margin-bottom: 15px; text-align: center; }
+        .promo-code-box { display: inline-block; background: #232f3e; color: #ffd814; padding: 7px 12px; font-weight: bold; border-radius: 4px; margin: 5px 0; cursor: pointer; letter-spacing: 1px; font-size: 13px; }
+        
         .status-paid { color:green; font-weight:bold; }
         .status-pending { color:orange; font-weight:bold; }
-        .admin-grid { display:grid; grid-template-columns: 1fr 1fr; gap:20px; }
-        @media(max-width: 768px) { .admin-grid { grid-template-columns: 1fr; } }
         
-        /* تصميم لوحة تحكم الأدمن للشات الفوري */
-        .live-chat-admin-container { display: flex; height: 600px; background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 20px; margin-bottom: 30px; }
-        .chat-sidebar { width: 300px; background: #f8f9fa; border-left: 1px solid #ddd; overflow-y: auto; }
-        .chat-sidebar h4 { padding: 15px; margin: 0; background: #232f3e; color: #fff; }
-        .client-chat-item { padding: 12px 15px; border-bottom: 1px solid #eee; cursor: pointer; text-decoration: none; color: #333; display: flex; justify-content: space-between; align-items: center; }
+        .admin-grid { display:grid; grid-template-columns: 1fr 1fr; gap:15px; }
+        
+        /* لوحة التحكم والتشات */
+        .live-chat-admin-container { display: flex; height: 500px; background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 15px; margin-bottom: 20px; }
+        .chat-sidebar { width: 240px; background: #f8f9fa; border-left: 1px solid #ddd; overflow-y: auto; }
+        .chat-sidebar h4 { padding: 12px; margin: 0; background: #232f3e; color: #fff; font-size: 13px; }
+        .client-chat-item { padding: 10px 12px; border-bottom: 1px solid #eee; cursor: pointer; text-decoration: none; color: #333; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
         .client-chat-item:hover, .client-chat-item.active { background: #e9ecef; }
         .chat-main-area { flex: 1; display: flex; flex-direction: column; background: #fff; }
-        .admin-messages-box { flex: 1; padding: 15px; overflow-y: auto; background: #f1f2f6; display: flex; flex-direction: column; gap: 8px; }
-        .admin-msg-bubble { max-width: 70%; padding: 10px 14px; border-radius: 8px; font-size: 13px; line-height: 1.4; }
+        .admin-messages-box { flex: 1; padding: 12px; overflow-y: auto; background: #f1f2f6; display: flex; flex-direction: column; gap: 6px; }
+        .admin-msg-bubble { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 12px; line-height: 1.4; }
         .admin-msg-bubble.client { background: #fff; align-self: flex-start; border: 1px solid #dcdde1; color: #333; }
         .admin-msg-bubble.admin { background: #0084ff; color: #fff; align-self: flex-end; }
-        .admin-reply-box { padding: 12px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 8px; }
-        .admin-reply-box input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; outline: none; }
-        .admin-reply-box button { padding: 8px 16px; background: #0084ff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .admin-reply-box { padding: 10px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 6px; }
+        .admin-reply-box input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 12px; }
+        .admin-reply-box button { padding: 7px 14px; background: #0084ff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; }
 
         /* زر الشات العائم للعميل */
-        .chat-widget-btn { position: fixed; bottom: 25px; left: 25px; background: var(--primary-color); color: #000; width: 60px; height: 60px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; z-index: 999; font-weight: bold; text-decoration: none; border: 2px solid white; transition: transform 0.2s; }
-        .chat-widget-btn:hover { transform: scale(1.1); }
-        .chat-widget-btn span { font-size: 10px; margin-top: 2px; }
+        .chat-widget-btn { position: fixed; bottom: 20px; left: 20px; background: var(--primary-color); color: #000; width: 52px; height: 52px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; z-index: 999; font-weight: bold; text-decoration: none; border: 2px solid white; transition: transform 0.2s; font-size: 18px; }
+        .chat-widget-btn:hover { transform: scale(1.08); }
+        .chat-widget-btn span { font-size: 9px; margin-top: 1px; }
         
         /* نافذة الشات المنبثقة للعميل */
-        .chat-popup { position: fixed; bottom: 95px; left: 25px; width: 320px; height: 430px; background: white; border-radius: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.2); z-index: 1000; display: none; flex-direction: column; overflow: hidden; border: 1px solid #ccc; }
-        .chat-header { background: var(--header-bg); color: white; padding: 12px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; }
-        .chat-header button { background: none; border: none; color: white; font-size: 16px; cursor: pointer; }
-        .chat-notice { background: #fff3cd; color: #856404; padding: 7px 10px; font-size: 11px; text-align: center; border-bottom: 1px solid #ffeeba; }
-        .chat-messages-container { flex: 1; padding: 12px; overflow-y: auto; background: #f9f9f9; display: flex; flex-direction: column; gap: 8px; }
-        .chat-msg { padding: 8px 12px; border-radius: 8px; max-width: 75%; font-size: 12.5px; line-height: 1.4; }
+        .chat-popup { position: fixed; bottom: 82px; left: 15px; width: 300px; max-width: calc(100vw - 30px); height: 380px; background: white; border-radius: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.2); z-index: 1000; display: none; flex-direction: column; overflow: hidden; border: 1px solid #ccc; }
+        .chat-header { background: var(--header-bg); color: white; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 13px; }
+        .chat-header button { background: none; border: none; color: white; font-size: 15px; cursor: pointer; }
+        .chat-notice { background: #fff3cd; color: #856404; padding: 6px 8px; font-size: 10px; text-align: center; border-bottom: 1px solid #ffeeba; }
+        .chat-messages-container { flex: 1; padding: 10px; overflow-y: auto; background: #f9f9f9; display: flex; flex-direction: column; gap: 6px; }
+        .chat-msg { padding: 7px 10px; border-radius: 8px; max-width: 80%; font-size: 12px; line-height: 1.4; }
         .chat-msg.client { background: #0084ff; color: #fff; align-self: flex-end; }
         .chat-msg.admin { background: #e4e6eb; color: #000; align-self: flex-start; }
-        .chat-footer { padding: 10px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 6px; }
-        .chat-footer input { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 12px; }
-        .chat-footer button { background: #0084ff; color: #fff; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; }
+        .chat-footer { padding: 8px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 5px; }
+        .chat-footer input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 11px; }
+        .chat-footer button { background: #0084ff; color: #fff; border: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; }
         
-        /* الفوتر */
-        footer { background: var(--header-bg); color:white; padding:30px 20px; margin-top:40px; border-top:3px solid var(--primary-color); text-align:center; }
-        .footer-content { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 15px; align-items: center; }
-        .footer-support { background: #232f3e; border: 1px solid #37475a; padding: 15px 25px; border-radius: 8px; width: 100%; box-sizing: border-box; }
-        .footer-support h4 { color: var(--primary-color); margin-top: 0; margin-bottom: 10px; }
-        .footer-support p { margin: 5px 0; font-size: 14px; }
+        /* الفوتر (معدل بدون إيميل أو تليفون ومحتفظ بالدعم الفوري) */
+        footer { background: var(--header-bg); color:white; padding:20px 15px; margin-top:30px; border-top:3px solid var(--primary-color); text-align:center; }
+        .footer-content { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+        .footer-support { background: #232f3e; border: 1px solid #37475a; padding: 12px 20px; border-radius: 8px; width: 100%; box-sizing: border-box; }
+        .footer-support h4 { color: var(--primary-color); margin-top: 0; margin-bottom: 8px; font-size: 14px; }
+        .footer-support p { margin: 4px 0; font-size: 13px; }
         .footer-support a { color: #ffd814; text-decoration: none; }
         .footer-support a:hover { text-decoration: underline; }
+        
+        /* التجاوب الدقيق مع شاشات الهواتف المحمولة */
+        @media(max-width: 768px) {
+            header { padding: 8px 10px; justify-content: center; }
+            .logo { font-size: 18px; margin-bottom: 4px; }
+            .search-bar { order: 3; width: 100%; max-width: 100%; margin-top: 4px; }
+            .nav-right { order: 2; width: 100%; justify-content: center; gap: 5px; }
+            .nav-btn { padding: 5px 8px; font-size: 11px; }
+            .products-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .card { padding: 8px; }
+            .card img { height: 110px; }
+            .card-title { font-size: 12px; height: 32px; }
+            .card-price { font-size: 14px; }
+            .btn-add { padding: 5px; font-size: 11px; }
+            .admin-grid { grid-template-columns: 1fr; }
+            .live-chat-admin-container { flex-direction: column; height: 400px; }
+            .chat-sidebar { width: 100%; height: 120px; }
+        }
     </style>
 </head>
 <body>
@@ -237,11 +267,11 @@ HTML_TEMPLATE = """
                     <span id="global-admin-badge" class="badge-notification" style="display:none;">0</span>
                 </a>
             {% endif %}
-            <a href="/profile" class="nav-btn" style="background:#37475a;">👤 حسابي: {{ current_user.first_name }}</a>
+            <a href="/profile" class="nav-btn" style="background:#37475a;">👤 حسابي</a>
             <a href="/orders" class="nav-btn">📦 طلباتي</a>
-            <a href="/logout" class="nav-btn">تسجيل خروج</a>
+            <a href="/logout" class="nav-btn">خروج</a>
         {% else %}
-            <a href="/login" class="nav-btn">تسجيل الدخول</a>
+            <a href="/login" class="nav-btn">دخول</a>
             <a href="/register" class="nav-btn">حساب جديد</a>
         {% endif %}
         <a href="/cart" class="nav-btn">🛒 السلة ({{ cart_count }})</a>
@@ -286,11 +316,11 @@ HTML_TEMPLATE = """
                 {% endfor %}
             </div>
         {% else %}
-            <p style="font-size:18px;">لم يتم العثور على منتجات.</p>
+            <p style="font-size:16px;">لم يتم العثور على منتجات.</p>
         {% endif %}
 
     {% elif page == 'register' %}
-        <div class="auth-form" style="max-width:500px; margin:auto;">
+        <div class="auth-form" style="max-width:450px; margin:auto;">
             <h2>إنشاء حساب جديد</h2>
             <form action="/register" method="POST">
                 <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" required></div>
@@ -309,7 +339,7 @@ HTML_TEMPLATE = """
         </div>
 
     {% elif page == 'profile' %}
-        <div class="auth-form" style="max-width:600px; margin:auto;">
+        <div class="auth-form" style="max-width:500px; margin:auto;">
             <h2>👤 ملفي الشخصي وتعديل البيانات</h2>
             <form action="/profile" method="POST">
                 <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" value="{{ current_user.first_name }}" required></div>
@@ -336,26 +366,28 @@ HTML_TEMPLATE = """
         {% endif %}
 
         {% if cart_items %}
-            <table class="cart-table">
-                <thead><tr><th>المنتج</th><th>السعر</th><th>الكمية</th><th>الإجمالي</th></tr></thead>
-                <tbody>
-                    {% for item in cart_items %}
-                    <tr><td>{{ item.name }}</td><td>{{ item.price }} ج.م</td><td>{{ item.qty }}</td><td>{{ "%.2f"|format(item.price * item.qty) }} ج.م</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <div style="overflow-x: auto;">
+                <table class="cart-table">
+                    <thead><tr><th>المنتج</th><th>السعر</th><th>الكمية</th><th>الإجمالي</th></tr></thead>
+                    <tbody>
+                        {% for item in cart_items %}
+                        <tr><td>{{ item.name }}</td><td>{{ item.price }} ج.م</td><td>{{ item.qty }}</td><td>{{ "%.2f"|format(item.price * item.qty) }} ج.م</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
 
-            <div style="background:white; color:#333; padding:15px; border-radius:8px; margin-bottom:20px; border:1px solid #ccc;">
-                <form action="/apply-coupon" method="POST" style="display:flex; gap:10px;">
-                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم هنا (مثال: Anything Shop 10)" value="{{ session.get('applied_coupon', '') }}" style="flex-grow:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
-                    <button type="submit" style="background:#232f3e; color:white; border:none; padding:8px 20px; border-radius:4px; font-weight:bold; cursor:pointer;">تطبيق الكود</button>
+            <div style="background:white; color:#333; padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+                <form action="/apply-coupon" method="POST" style="display:flex; gap:8px; flex-wrap: wrap;">
+                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم هنا" value="{{ session.get('applied_coupon', '') }}" style="flex-grow:1; padding:8px; border:1px solid #ccc; border-radius:4px; font-size: 13px;">
+                    <button type="submit" style="background:#232f3e; color:white; border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer; font-size: 13px;">تطبيق الكود</button>
                 </form>
                 {% if session.get('applied_coupon') %}
-                    <p style="color:green; margin-top:8px;">✅ تم تفعيل الكود بنجاح (خصم 10%) <a href="/remove-coupon" style="color:red; text-decoration:none; margin-right:10px;">[إلغاء]</a></p>
+                    <p style="color:green; margin-top:6px; font-size: 12px;">✅ تم تفعيل الكود بنجاح (خصم 10%) <a href="/remove-coupon" style="color:red; text-decoration:none; margin-right:8px;">[إلغاء]</a></p>
                 {% endif %}
             </div>
 
-            <div style="text-align:left; background:white; color:#333; padding:15px; border-radius:8px; margin-bottom:20px;">
+            <div style="text-align:left; background:white; color:#333; padding:12px; border-radius:8px; margin-bottom:15px;">
                 <p>إجمالي المنتجات: <strong>{{ "%.2f"|format(total_price) }} ج.م</strong></p>
                 {% if discount_amount > 0 %}
                     <p style="color:green;">قيمة الخصم: <strong>- {{ "%.2f"|format(discount_amount) }} ج.م</strong></p>
@@ -380,7 +412,7 @@ HTML_TEMPLATE = """
     {% elif page == 'orders' %}
         <h2>طلباتي</h2>
         {% for order in orders %}
-            <div style="background:white; color:#333; padding:15px; border-radius:8px; margin-bottom:20px; border:1px solid #ccc;">
+            <div style="background:white; color:#333; padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc; font-size: 13px;">
                 <h4>طلب رقم #{{ order.id }} - {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</h4>
                 <p><strong>حالة الدفع:</strong> <span class="{% if order.payment_status == 'Paid' %}status-paid{% else %}status-pending{% endif %}">{{ order.payment_status }}</span></p>
                 <p><strong>طريقة الدفع:</strong> {{ order.payment_method }}</p>
@@ -393,20 +425,19 @@ HTML_TEMPLATE = """
         {% endfor %}
 
     {% elif page == 'admin' %}
-        <h2>⚙️ لوحة تحكم الأدمن (صلاحيات كاملة)</h2>
+        <h2>⚙️ لوحة تحكم الأدمن</h2>
         
-        <!-- قسم لوحة الشات الحي للإدارة -->
         <h3>💬 نظام الدعم الفني والمحادثات الحية مع العملاء</h3>
         <div class="live-chat-admin-container">
             <div class="chat-sidebar">
                 <h4>قائمة المحادثات</h4>
                 {% if not chat_sessions %}
-                    <div style="padding: 15px; color: #777; text-align: center; font-size: 13px;">لا توجد محادثات نشطة حالياً.</div>
+                    <div style="padding: 10px; color: #777; text-align: center; font-size: 11px;">لا توجد محادثات نشطة.</div>
                 {% endif %}
                 {% for conv in chat_sessions %}
                     <a href="/admin?session={{ conv.session_id }}" class="client-chat-item {% if active_session == conv.session_id %}active{% endif %}">
                         <div>
-                            <strong>جلسة:</strong> {{ conv.session_id[:10] }}...<br>
+                            <strong>جلسة:</strong> {{ conv.session_id[:8] }}...<br>
                             <small style="color: #666;">{{ conv.last_time[:16] }}</small>
                         </div>
                         {% if conv.unread_count > 0 %}
@@ -417,38 +448,38 @@ HTML_TEMPLATE = """
             </div>
             <div class="chat-main-area">
                 {% if active_session %}
-                    <div class="admin-messages-box" id="adminMsgBox">
-                        <!-- تظهر الرسائل عبر جافاسكريبت -->
-                    </div>
+                    <div class="admin-messages-box" id="adminMsgBox"></div>
                     <form class="admin-reply-box" id="adminReplyForm">
                         <input type="text" id="adminReplyInput" placeholder="اكتب ردك كأدمن هنا..." required autocomplete="off">
                         <button type="submit">إرسال</button>
                     </form>
                 {% else %}
-                    <div style="padding: 50px; text-align: center; color: #666; margin-top: 80px;">
-                        <h4>اختر محادثة من القائمة الجانبية للبدء بالرد الفوري على العميل.</h4>
+                    <div style="padding: 30px; text-align: center; color: #666; margin-top: 50px; font-size: 13px;">
+                        <h4>اختر محادثة من القائمة الجانبية للبدء بالرد الفوري.</h4>
                     </div>
                 {% endif %}
             </div>
         </div>
 
         <h3>📦 إدارة الأوردرات الجديدة</h3>
-        <table class="admin-table">
-            <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
-            <tbody>
-                {% for ord in all_orders %}
-                <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
-                    <td>#{{ ord.id }} {% if not ord.is_read %}<span style="background:red; color:white; font-size:10px; padding:2px 5px; border-radius:4px;">جديد</span>{% endif %}</td>
-                    <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
-                    <td>{{ ord.phone }}</td>
-                    <td>{{ ord.address }}</td>
-                    <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
-                    <td><span class="status-pending">{{ ord.payment_status }}</span></td>
-                    <td><a href="/admin/mark-order-read/{{ ord.id }}" style="font-size:12px; color:#0084ff; text-decoration:none;">تحديد كمقروء</a></td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div style="overflow-x: auto;">
+            <table class="admin-table">
+                <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
+                <tbody>
+                    {% for ord in all_orders %}
+                    <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
+                        <td>#{{ ord.id }} {% if not ord.is_read %}<span style="background:red; color:white; font-size:9px; padding:2px 4px; border-radius:4px;">جديد</span>{% endif %}</td>
+                        <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
+                        <td>{{ ord.phone }}</td>
+                        <td>{{ ord.address }}</td>
+                        <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
+                        <td><span class="status-pending">{{ ord.payment_status }}</span></td>
+                        <td><a href="/admin/mark-order-read/{{ ord.id }}" style="font-size:11px; color:#0084ff; text-decoration:none;">تحديد كمقروء</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
 
         <div class="admin-grid">
             <div class="admin-card">
@@ -458,8 +489,8 @@ HTML_TEMPLATE = """
                     <div class="form-group"><label>السعر (ج.م)</label><input type="number" step="0.01" name="price" required></div>
                     <div class="form-group"><label>القسم</label><input type="text" name="category" required></div>
                     <div class="form-group">
-                        <label>صورة المنتج (اختر ملف من جهازك أو أدخل رابط)</label>
-                        <input type="file" name="image_file" accept="image/*" style="margin-bottom:8px;">
+                        <label>صورة المنتج</label>
+                        <input type="file" name="image_file" accept="image/*" style="margin-bottom:6px; font-size: 12px;">
                         <input type="url" name="image" placeholder="أو أدخل رابط صورة مباشر (URL)">
                     </div>
                     <button type="submit" class="btn-submit">حفظ المنتج</button>
@@ -480,33 +511,35 @@ HTML_TEMPLATE = """
         </div>
 
         <h3>🛠️ إدارة المنتجات</h3>
-        <table class="admin-table">
-            <thead><tr><th>#</th><th>الصورة</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>إجراءات</th></tr></thead>
-            <tbody>
-                {% for p in all_products %}
-                <tr>
-                    <td>{{ p.id }}</td>
-                    <td><img src="{{ p.image }}" style="width:40px; height:40px; object-fit:cover; border-radius:4px;"></td>
-                    <td><b>{{ p.name }}</b></td><td>{{ p.category }}</td><td>{{ p.price }} ج.م</td>
-                    <td>
-                        <a href="/admin/edit-product/{{ p.id }}" class="btn-edit">تعديل</a>
-                        <a href="/admin/delete-product/{{ p.id }}" class="btn-danger" onclick="return confirm('تأكيد الحذف؟')">حذف</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div style="overflow-x: auto;">
+            <table class="admin-table">
+                <thead><tr><th>#</th><th>الصورة</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>إجراءات</th></tr></thead>
+                <tbody>
+                    {% for p in all_products %}
+                    <tr>
+                        <td>{{ p.id }}</td>
+                        <td><img src="{{ p.image }}" style="width:35px; height:35px; object-fit:cover; border-radius:4px;"></td>
+                        <td><b>{{ p.name }}</b></td><td>{{ p.category }}</td><td>{{ p.price }} ج.م</td>
+                        <td>
+                            <a href="/admin/edit-product/{{ p.id }}" class="btn-edit">تعديل</a>
+                            <a href="/admin/delete-product/{{ p.id }}" class="btn-danger" onclick="return confirm('تأكيد الحذف؟')">حذف</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
 
     {% elif page == 'edit_product' %}
-        <div class="admin-card" style="max-width:600px; margin:auto;">
+        <div class="admin-card" style="max-width:500px; margin:auto;">
             <h2>✏️ تعديل المنتج #{{ edit_prod.id }}</h2>
             <form action="/admin/edit-product/{{ edit_prod.id }}" method="POST" enctype="multipart/form-data">
                 <div class="form-group"><label>الاسم</label><input type="text" name="name" value="{{ edit_prod.name }}" required></div>
                 <div class="form-group"><label>السعر</label><input type="number" step="0.01" name="price" value="{{ edit_prod.price }}" required></div>
                 <div class="form-group"><label>القسم</label><input type="text" name="category" value="{{ edit_prod.category }}" required></div>
                 <div class="form-group">
-                    <label>تحديث الصورة (رفع ملف جديد أو تعديل الرابط)</label>
-                    <input type="file" name="image_file" accept="image/*" style="margin-bottom:8px;">
+                    <label>تحديث الصورة</label>
+                    <input type="file" name="image_file" accept="image/*" style="margin-bottom:6px; font-size: 12px;">
                     <input type="url" name="image" value="{{ edit_prod.image }}" required>
                 </div>
                 <button type="submit" class="btn-submit">حفظ التعديلات</button>
@@ -514,7 +547,7 @@ HTML_TEMPLATE = """
         </div>
 
     {% elif page == 'login' %}
-        <div class="auth-form" style="max-width:400px; margin:auto;">
+        <div class="auth-form" style="max-width:380px; margin:auto;">
             <h2>تسجيل الدخول</h2>
             <form action="/login" method="POST">
                 <div class="form-group"><label>البريد الإلكتروني</label><input type="email" name="email" required></div>
@@ -532,7 +565,7 @@ HTML_TEMPLATE = """
 <!-- زر الشات العائم للعميل -->
 <div id="support-chat-btn" class="chat-widget-btn">
     💬
-    <span>الدعم الفوري</span>
+    <span>الدعم</span>
 </div>
 
 <!-- نافذة محادثة ودعم العملاء المنبثقة -->
@@ -542,7 +575,7 @@ HTML_TEMPLATE = """
         <button id="close-chat">✕</button>
     </div>
     <div class="chat-notice">
-        ⏰ سيتم الرد عليك في خلال أقرب وقت، وبحد أقصى 24 ساعة.
+        ⏰ سيتم الرد عليك في أقرب وقت.
     </div>
     <div id="chat-messages" class="chat-messages-container"></div>
     <div class="chat-footer">
@@ -551,11 +584,9 @@ HTML_TEMPLATE = """
     </div>
 </div>
 
-<!-- سكربت التحديث اللحظي والإشعارات -->
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     {% if current_user.is_authenticated and current_user.is_admin %}
-    // فحص الإشعارات والرسائل الجديدة والأوردرات كل 5 ثوانٍ للأدمن
     function checkAdminNotifications() {
         fetch('/api/admin/notifications')
             .then(res => res.json())
@@ -576,7 +607,6 @@ document.addEventListener("DOMContentLoaded", function() {
     checkAdminNotifications();
     {% endif %}
 
-    // --- منطق شات العميل ---
     let sessionId = localStorage.getItem('support_session_id');
     if (!sessionId) {
         sessionId = 'session_' + Math.random().toString(36).substring(2) + Date.now();
@@ -611,7 +641,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (data.status === 'success') {
                     msgContainer.innerHTML = '';
                     if (data.messages.length === 0) {
-                        msgContainer.innerHTML = '<div style="text-align:center; color:#888; font-size:12px; margin-top:20px;">أهلاً بك! اكتب رسالتك وسنرد عليك قريباً.</div>';
+                        msgContainer.innerHTML = '<div style="text-align:center; color:#888; font-size:11px; margin-top:15px;">أهلاً بك! اكتب رسالتك وسنرد عليك.</div>';
                     }
                     data.messages.forEach(msg => {
                         const div = document.createElement('div');
@@ -652,7 +682,6 @@ document.addEventListener("DOMContentLoaded", function() {
         if (isChatOpen) fetchClientMessages();
     }, 4000);
 
-    // --- منطق شات الأدمن ---
     const adminMsgBox = document.getElementById('adminMsgBox');
     const adminReplyForm = document.getElementById('adminReplyForm');
     const adminReplyInput = document.getElementById('adminReplyInput');
@@ -670,7 +699,7 @@ document.addEventListener("DOMContentLoaded", function() {
                             const div = document.createElement('div');
                             div.className = 'admin-msg-bubble ' + msg.sender_type;
                             div.innerHTML = msg.message.replace(/\\n/g, '<br>') + 
-                                            `<div style="font-size:9px; opacity:0.7; margin-top:3px; text-align:left;">${msg.created_at}</div>`;
+                                            `<div style="font-size:9px; opacity:0.7; margin-top:2px; text-align:left;">${msg.created_at}</div>`;
                             adminMsgBox.appendChild(div);
                         });
                         adminMsgBox.scrollTop = adminMsgBox.scrollHeight;
@@ -709,10 +738,8 @@ document.addEventListener("DOMContentLoaded", function() {
 <footer>
     <div class="footer-content">
         <div class="footer-support">
-            <h4>مركز المساعدة والدعم الفني (Help & Support)</h4>
-            <p>هل تحتاج إلى المساعدة أو استفسار بخصوص طلبك؟ يمكنك التواصل معنا عبر:</p>
-            <p>📧 البريد الإلكتروني: <a href="mailto:2aa6884984@gmail.com">2aa6884984@gmail.com</a></p>
-            <p>📞 رقم الهاتف والدعم: <a href="tel:01097472500">01097472500</a></p>
+            <h4>مركز المساعدة والدعم الفني</h4>
+            <p>هل تحتاج إلى المساعدة أو استفسار بخصوص طلبك؟ استخدم زر <strong>الدعم الفوري</strong> العائم أسفل الشاشة للتحدث معنا مباشرة في أي وقت.</p>
         </div>
         <small>©️ 2026 Anything Shop - جميع الحقوق محفوظة.</small>
     </div>
@@ -756,7 +783,6 @@ def search():
     filters = [Product.name.ilike(f"%{w}%") for w in query.split()] + [Product.category.ilike(f"%{w}%") for w in query.split()]
     return render_template_string(HTML_TEMPLATE, page='search', products=Product.query.filter(db.or_(*filters)).all(), search_query=query, cart_count=get_cart_count(), categories_list=get_categories(), current_cat="", settings=get_settings())
 
-# --- API endpoints للإشعارات والشات الحي ---
 @app.route("/api/admin/notifications", methods=["GET"])
 def api_admin_notifications():
     if not current_user.is_authenticated or not current_user.is_admin:
@@ -795,7 +821,6 @@ def api_chat_messages():
     if not session_id:
         return jsonify({"status": "error", "messages": []})
     
-    # إذا كان الأدمن يفتح الشات، نحدد رسائل هذه الجلسة كمقروءة
     if current_user.is_authenticated and current_user.is_admin:
         SupportMessage.query.filter_by(session_id=session_id, sender_type='client').update({SupportMessage.is_read: True})
         db.session.commit()
@@ -965,7 +990,6 @@ def google_callback():
 def my_orders():
     return render_template_string(HTML_TEMPLATE, page='orders', orders=Order.query.filter_by(user_id=current_user.id).order_by(Order.created_at.desc()).all(), cart_count=get_cart_count(), categories_list=get_categories(), current_cat="Orders", settings=get_settings())
 
-# --- مسارات الأدمن والشات والإشعارات ---
 @app.route("/admin")
 @login_required
 def admin_panel():
