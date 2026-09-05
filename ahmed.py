@@ -1264,7 +1264,7 @@ def my_orders():
 # --- لوحة تحكم الأدمن ---
 @app.route("/admin")
 @login_required
-def admin_panel(if not getattr(current_user, "is_admin", False):
+def admin_panelif not getattr(current_user, "is_admin", False):
     return redirect(url_for("home"))
 
 order_page = int(request.args.get("order_page", 1))
@@ -1285,4 +1285,4 @@ return render_template_string(
     categories=get_categories_list(),
     current_cat="",
     settings=get_settings(),
-)):
+)
