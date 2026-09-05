@@ -1264,4 +1264,25 @@ def my_orders():
 # --- لوحة تحكم الأدمن ---
 @app.route("/admin")
 @login_required
-def admin_panel():
+def admin_panel(if not getattr(current_user, "is_admin", False):
+    return redirect(url_for("home"))
+
+order_page = int(request.args.get("order_page", 1))
+orders_per_page = 10
+
+all_orders_query = Order.query.order_by(Order.id.desc())
+total_orders_count = all_orders_query.count()
+
+orders = all_orders_query.paginate(
+    page=order_page, per_page=orders_per_page, error_out=False
+).items
+
+return render_template_string(
+    HTML_TEMPLATE,
+    page="admin",
+    orders=orders,
+    total_orders=total_orders_count,
+    categories=get_categories_list(),
+    current_cat="",
+    settings=get_settings(),
+)):
