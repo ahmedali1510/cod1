@@ -1,15 +1,14 @@
 import os
 import json
+import requests
 import hmac
 import hashlib
-import requests
 from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
 from authlib.integrations.flask_client import OAuth
 
 # تحميل متغيرات البيئة من ملف .env
@@ -26,7 +25,7 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# --- إعدادات Google OAuth ---
+# --- إعدادات Google OAuth من ملف .env ---
 app.config['GOOGLE_CLIENT_ID'] = os.environ.get("GOOGLE_CLIENT_ID")
 app.config['GOOGLE_CLIENT_SECRET'] = os.environ.get("GOOGLE_CLIENT_SECRET")
 
@@ -61,10 +60,6 @@ class Product(db.Model):
     category = db.Column(db.String(100), nullable=False)
     image = db.Column(db.String(500), nullable=False)
 
-class Category(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-
 class SiteSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     header_color = db.Column(db.String(20), default='#131921')
@@ -72,11 +67,8 @@ class SiteSettings(db.Model):
     price_color = db.Column(db.String(20), default='#B12704')
     bg_color = db.Column(db.String(20), default='#eaeded')
     text_color = db.Column(db.String(20), default='#0f1111')
-    icon_color = db.Column(db.String(20), default='#ffffff')
-    card_bg_color = db.Column(db.String(20), default='#ffffff')
     font_size = db.Column(db.Integer, default=14)
     shipping_fee = db.Column(db.Float, default=50.0)
-    logo_url = db.Column(db.String(500), nullable=True)
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -86,17 +78,16 @@ class Order(db.Model):
     payment_method = db.Column(db.String(50), nullable=False)
     payment_status = db.Column(db.String(50), default='Pending')
     items_price = db.Column(db.Float, nullable=False)
-    shipping_fee = db.Column(db.Float, nullable=False, default=50.0)
     discount_amount = db.Column(db.Float, nullable=False, default=0.0)
+    shipping_fee = db.Column(db.Float, nullable=False, default=50.0)
     total_price = db.Column(db.Float, nullable=False)
     items_json = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
-    paymob_order_id = db.Column(db.String(100), nullable=True)
 
+# نموذج رسائل الشات الحي الفوري مع دعم الحقول الجديدة (البريد والهاتف للعميل)
 class SupportMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     session_id = db.Column(db.String(255), nullable=False)
     sender_type = db.Column(db.String(20), nullable=False)
     message = db.Column(db.Text, nullable=False)
@@ -117,6 +108,8 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anything Shop - متجر احترافي</title>
+    <!-- أيقونة الموقع 3D أصفر في أزرق -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='yg' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23fff200'/><stop offset='100%' stop-color='%23ff9900'/></linearGradient><linearGradient id='bg' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23131921'/><stop offset='100%' stop-color='%23232f3e'/></linearGradient></defs><rect width='100' height='100' rx='20' fill='url(%23bg)'/><path d='M50 18 L78 75 L63 75 L50 42 L37 75 L22 75 Z' fill='url(%23yg)' filter='drop-shadow(2px 4px 6px rgba(0,0,0,0.5))'/><polygon points='50,30 58,55 42,55' fill='%23131921'/></svg>">
     <style>
         :root {
             --header-bg: {{ settings.header_color }};
@@ -124,8 +117,6 @@ HTML_TEMPLATE = """
             --price-color: {{ settings.price_color }};
             --bg-color: {{ settings.bg_color }};
             --text-color: {{ settings.text_color }};
-            --icon-color: {{ settings.icon_color }};
-            --card-bg: {{ settings.card_bg_color }};
             --font-size: {{ settings.font_size }}px;
         }
         * { box-sizing: border-box; }
@@ -135,98 +126,146 @@ HTML_TEMPLATE = """
         .logo { font-size:20px; font-weight:bold; color: var(--primary-color); text-decoration:none; white-space:nowrap; display: flex; align-items: center; gap: 8px; }
         
         .logo-3d {
-            width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
-            background: linear-gradient(135deg, #131921, #232f3e); border-radius: 8px;
+            width: 36px;
+            height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #131921, #232f3e);
+            border-radius: 8px;
             box-shadow: 0 3px 6px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.2);
-            overflow: hidden; border: 1px solid #37475a;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #37475a;
         }
-        .logo-3d img, .logo-3d svg { width: 100%; height: 100%; object-fit: cover; }
+        .logo-3d svg {
+            width: 28px;
+            height: 28px;
+            filter: drop-shadow(1px 2px 2px rgba(0,0,0,0.6));
+        }
         
         .search-bar { flex-grow:1; max-width:500px; display:flex; min-width: 200px; }
         .search-bar input { width:100%; padding:8px 10px; border:none; border-radius:0 4px 4px 0; font-size:13px; outline:none; }
-        .search-bar button { background: var(--primary-color); border:none; padding:8px 12px; border-radius:4px 0 0 4px; cursor:pointer; font-weight:bold; font-size: 13px; color: var(--text-color); }
+        .search-bar button { background: var(--primary-color); border:none; padding:8px 12px; border-radius:4px 0 0 4px; cursor:pointer; font-weight:bold; font-size: 13px; }
         
         .nav-right { display:flex; align-items:center; gap:8px; white-space:nowrap; flex-wrap: wrap; }
-        .nav-btn { background:#232f3e; color: var(--icon-color); padding:6px 12px; border-radius:4px; text-decoration:none; font-weight:bold; border:1px solid #d5d9d9; position: relative; font-size: 13px; }
+        .nav-btn { background:#232f3e; color:white; padding:6px 12px; border-radius:4px; text-decoration:none; font-weight:bold; border:1px solid #d5d9d9; position: relative; font-size: 13px; }
         .admin-btn { background: var(--primary-color); color:black; }
         
         .badge-notification {
-            position: absolute; top: -6px; right: -6px; background-color: #ff3b30; color: white;
-            border-radius: 50%; padding: 2px 5px; font-size: 10px; font-weight: bold; min-width: 15px; text-align: center;
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            background-color: #ff3b30;
+            color: white;
+            border-radius: 50%;
+            padding: 2px 5px;
+            font-size: 10px;
+            font-weight: bold;
+            display: inline-block;
+            min-width: 15px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
         }
 
         .nav-categories { background:#232f3e; padding:8px 15px; display:flex; gap:10px; overflow-x:auto; white-space: nowrap; }
-        .nav-categories a { color: var(--icon-color); text-decoration:none; font-weight:500; font-size:13px; padding:4px 8px; border-radius:3px; }
+        .nav-categories::-webkit-scrollbar { height: 4px; }
+        .nav-categories::-webkit-scrollbar-thumb { background: #37475a; border-radius: 2px; }
+        .nav-categories a { color:white; text-decoration:none; font-weight:500; font-size:13px; padding:4px 8px; border-radius:3px; }
         .nav-categories a:hover, .nav-categories a.active { background:#37475a; color: var(--primary-color); }
         
-        .welcome-banner { background: linear-gradient(135deg, #232f3e, #37475a); color: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .welcome-banner h3 { margin: 0; color: var(--primary-color); font-size: 18px; }
-        .welcome-banner p { margin: 5px 0 0; font-size: 13px; color: #ddd; }
-
         .container { max-width:1300px; margin:15px auto; padding:0 10px; min-height:75vh; }
         .products-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:15px; }
-        .card { background: var(--card-bg); border:1px solid #e7e7e7; border-radius:8px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; }
+        .card { background:white; border:1px solid #e7e7e7; border-radius:8px; padding:12px; display:flex; flex-direction:column; justify-content:space-between; color: #0f1111; }
         .card img { width:100%; height:140px; object-fit:cover; border-radius:4px; margin-bottom:8px; }
         .card-title { font-size:14px; font-weight:600; margin-bottom:5px; height:38px; overflow:hidden; }
         .card-price { font-size:16px; color: var(--price-color); font-weight:bold; margin-bottom:8px; }
         .btn-add { background:#ffd814; border:1px solid #FCD200; border-radius:20px; padding:7px; width:100%; font-weight:bold; cursor:pointer; font-size: 13px; }
+        .btn-add:hover { background:#f7ca00; }
         
-        .cart-table, .orders-table, .admin-table { width:100%; background: var(--card-bg); border-collapse:collapse; margin-bottom:20px; border-radius:8px; overflow:hidden; font-size: 13px; }
+        .cart-table, .orders-table, .admin-table { width:100%; background:white; color:#333; border-collapse:collapse; margin-bottom:20px; border-radius:8px; overflow:hidden; font-size: 13px; }
         .cart-table th, .cart-table td, .orders-table th, .orders-table td, .admin-table th, .admin-table td { padding:10px; text-align:right; border-bottom:1px solid #ddd; }
         
-        .checkout-form, .auth-form, .admin-card { background: var(--card-bg); padding:18px; border-radius:8px; margin-bottom:20px; border:1px solid #ddd; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+        .checkout-form, .auth-form, .admin-card { background:white; color:#333; padding:18px; border-radius:8px; margin-bottom:20px; border:1px solid #ddd; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
         .form-group { margin-bottom:12px; }
         .form-group label { display:block; margin-bottom:4px; font-weight:bold; font-size: 13px; }
-        .form-group input, .form-group textarea, .form-group select { width:100%; padding:9px; border:1px solid #ccc; border-radius:4px; font-size: 14px; }
+        .form-group input, .form-group textarea, .form-group select { width:100%; padding:9px; border:1px solid #ccc; border-radius:4px; box-sizing:border-box; font-size: 14px; }
         
         .btn-submit { background: var(--primary-color); color:black; border:none; padding:10px; border-radius:4px; font-weight:bold; width:100%; cursor:pointer; font-size:15px; }
-        .btn-google { display:flex; align-items:center; justify-content:center; gap:10px; background:#4285F4; color:white; border:none; padding:10px; border-radius:4px; font-weight:bold; width:100%; text-decoration:none; margin-top:10px; font-size:14px; }
         .btn-danger { background:#dc3545; color:white; padding:5px 10px; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:11px; }
         .btn-edit { background:#ffc107; color:black; padding:5px 10px; border:none; border-radius:4px; cursor:pointer; text-decoration:none; font-size:11px; margin-left:4px; }
         
-        .admin-section-box { background: var(--card-bg); border: 1px solid #ccc; border-radius: 8px; margin-bottom: 15px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .admin-section-header { background: #232f3e; color: #fff; padding: 12px 18px; font-weight: bold; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
-        .admin-section-header:hover { background: #37475a; }
-        .admin-section-content { padding: 18px; display: none; border-top: 1px solid #ddd; }
-        .admin-section-content.open { display: block; }
-
-        .pagination-box { display: flex; justify-content: center; gap: 6px; margin: 25px 0; }
-        .pagination-box a, .pagination-box span { padding: 8px 14px; border: 1px solid #ccc; background: #fff; color: #333; text-decoration: none; border-radius: 4px; font-size: 13px; font-weight: bold; }
-        .pagination-box a.active, .pagination-box span.active { background: var(--primary-color); color: #000; border-color: #d4af37; }
-
-        .live-chat-admin-container { display: flex; height: 450px; background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 10px; }
-        .chat-sidebar { width: 280px; background: #f8f9fa; border-left: 1px solid #ddd; display: flex; flex-direction: column; }
-        .chat-sidebar-list { flex: 1; overflow-y: auto; }
+        .btn-social { display:flex; align-items:center; justify-content:center; gap:8px; padding:9px; border-radius:4px; text-decoration:none; font-weight:bold; margin-top:10px; border:1px solid #ccc; background:white; color:#333; font-size: 13px; }
+        .btn-social img { width:18px; height:18px; }
+        
+        .alert { background:#d4edda; color:#155724; padding:10px; border-radius:4px; margin-bottom:12px; font-size: 13px; }
+        .promo-banner { background: #fff8e1; border: 2px dashed #ff9900; padding: 12px; border-radius: 8px; margin-bottom: 15px; text-align: center; }
+        .promo-code-box { display: inline-block; background: #232f3e; color: #ffd814; padding: 7px 12px; font-weight: bold; border-radius: 4px; margin: 5px 0; cursor: pointer; letter-spacing: 1px; font-size: 13px; }
+        
+        .status-paid { color:green; font-weight:bold; }
+        .status-pending { color:orange; font-weight:bold; }
+        
+        .admin-grid { display:grid; grid-template-columns: 1fr 1fr; gap:15px; }
+        
+        /* لوحة التحكم والتشات */
+        .live-chat-admin-container { display: flex; height: 500px; background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 15px; margin-bottom: 20px; }
+        .chat-sidebar { width: 260px; background: #f8f9fa; border-left: 1px solid #ddd; overflow-y: auto; }
+        .chat-sidebar h4 { padding: 12px; margin: 0; background: #232f3e; color: #fff; font-size: 13px; }
         .client-chat-item { padding: 10px 12px; border-bottom: 1px solid #eee; cursor: pointer; text-decoration: none; color: #333; display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
         .client-chat-item:hover, .client-chat-item.active { background: #e9ecef; }
         .chat-main-area { flex: 1; display: flex; flex-direction: column; background: #fff; }
         .admin-messages-box { flex: 1; padding: 12px; overflow-y: auto; background: #f1f2f6; display: flex; flex-direction: column; gap: 6px; }
-        .admin-msg-bubble { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 12px; }
+        .admin-msg-bubble { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 12px; line-height: 1.4; }
         .admin-msg-bubble.client { background: #fff; align-self: flex-start; border: 1px solid #dcdde1; color: #333; }
         .admin-msg-bubble.admin { background: #0084ff; color: #fff; align-self: flex-end; }
         .admin-reply-box { padding: 10px; background: #fff; border-top: 1px solid #ddd; display: flex; gap: 6px; }
         .admin-reply-box input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 12px; }
         .admin-reply-box button { padding: 7px 14px; background: #0084ff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; }
 
-        .chat-widget-btn { position: fixed; bottom: 20px; left: 20px; background: var(--primary-color); color: #000; width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; z-index: 999; font-weight: bold; text-decoration: none; border: 2px solid white; font-size: 18px; }
+        /* زر الشات العائم للعميل */
+        .chat-widget-btn { position: fixed; bottom: 20px; left: 20px; background: var(--primary-color); color: #000; width: 52px; height: 52px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.3); cursor: pointer; z-index: 999; font-weight: bold; text-decoration: none; border: 2px solid white; transition: transform 0.2s; font-size: 18px; }
+        .chat-widget-btn:hover { transform: scale(1.08); }
+        .chat-widget-btn span { font-size: 9px; margin-top: 1px; }
+        
+        /* نافذة الشات المنبثقة للعميل */
         .chat-popup { position: fixed; bottom: 82px; left: 15px; width: 320px; max-width: calc(100vw - 30px); height: 400px; background: white; border-radius: 10px; box-shadow: 0 5px 20px rgba(0,0,0,0.2); z-index: 1000; display: none; flex-direction: column; overflow: hidden; border: 1px solid #ccc; }
         .chat-header { background: var(--header-bg); color: white; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 13px; }
         .chat-header button { background: none; border: none; color: white; font-size: 15px; cursor: pointer; }
+        .chat-notice { background: #fff3cd; color: #856404; padding: 6px 8px; font-size: 10px; text-align: center; border-bottom: 1px solid #ffeeba; }
         .chat-messages-container { flex: 1; padding: 10px; overflow-y: auto; background: #f9f9f9; display: flex; flex-direction: column; gap: 6px; }
-        .chat-msg { padding: 7px 10px; border-radius: 8px; max-width: 80%; font-size: 12px; }
+        .chat-msg { padding: 7px 10px; border-radius: 8px; max-width: 80%; font-size: 12px; line-height: 1.4; }
         .chat-msg.client { background: #0084ff; color: #fff; align-self: flex-end; }
         .chat-msg.admin { background: #e4e6eb; color: #000; align-self: flex-start; }
         .chat-footer { padding: 8px; background: #fff; border-top: 1px solid #ddd; display: flex; flex-direction: column; gap: 5px; }
         .chat-footer-row { display: flex; gap: 5px; width: 100%; }
-        .chat-footer input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; font-size: 11px; }
-        .chat-footer button { background: #0084ff; color: #fff; border: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+        .chat-footer input { flex: 1; padding: 7px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 11px; }
+        .chat-footer button { background: #0084ff; color: #fff; border: none; padding: 7px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; }
         
+        /* الفوتر */
         footer { background: var(--header-bg); color:white; padding:20px 15px; margin-top:30px; border-top:3px solid var(--primary-color); text-align:center; }
-        .alert { background:#d4edda; color:#155724; padding:10px; border-radius:4px; margin-bottom:12px; font-size: 13px; }
-        .payment-status-box { padding: 30px; text-align: center; border-radius: 8px; margin: 20px auto; max-width: 500px; }
-        .payment-status-box.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .payment-status-box.failed { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .payment-status-box.pending { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .footer-content { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+        .footer-support { background: #232f3e; border: 1px solid #37475a; padding: 12px 20px; border-radius: 8px; width: 100%; box-sizing: border-box; }
+        .footer-support h4 { color: var(--primary-color); margin-top: 0; margin-bottom: 8px; font-size: 14px; }
+        .footer-support p { margin: 4px 0; font-size: 13px; }
+        .footer-support a { color: #ffd814; text-decoration: none; }
+        .footer-support a:hover { text-decoration: underline; }
+        
+        @media(max-width: 768px) {
+            header { padding: 8px 10px; justify-content: center; }
+            .logo { font-size: 18px; margin-bottom: 4px; }
+            .search-bar { order: 3; width: 100%; max-width: 100%; margin-top: 4px; }
+            .nav-right { order: 2; width: 100%; justify-content: center; gap: 5px; }
+            .nav-btn { padding: 5px 8px; font-size: 11px; }
+            .products-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .card { padding: 8px; }
+            .card img { height: 110px; }
+            .card-title { font-size: 12px; height: 32px; }
+            .card-price { font-size: 14px; }
+            .btn-add { padding: 5px; font-size: 11px; }
+            .admin-grid { grid-template-columns: 1fr; }
+            .live-chat-admin-container { flex-direction: column; height: 400px; }
+            .chat-sidebar { width: 100%; height: 120px; }
+        }
     </style>
 </head>
 <body>
@@ -234,14 +273,22 @@ HTML_TEMPLATE = """
 <header>
     <a href="/" class="logo">
         <div class="logo-3d">
-            {% if settings.logo_url %}
-                <img src="{{ settings.logo_url }}" alt="Logo">
-            {% else %}
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-                    <path d="M50 12 L82 78 L65 78 L50 45 L35 78 L18 78 Z" fill="%23ffd700"/>
-                    <polygon points="50,28 60,56 40,56" fill="%231e3c72"/>
-                </svg>
-            {% endif %}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                <defs>
+                    <linearGradient id="mainYellow" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#fff565"/>
+                        <stop offset="50%" stop-color="#ffd700"/>
+                        <stop offset="100%" stop-color="#ff9900"/>
+                    </linearGradient>
+                    <linearGradient id="blueShade" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#1e3c72"/>
+                        <stop offset="100%" stop-color="#2a5298"/>
+                    </linearGradient>
+                </defs>
+                <path d="M50 12 L82 78 L65 78 L50 45 L35 78 L18 78 Z" fill="url(#mainYellow)" stroke="#d4af37" stroke-width="2"/>
+                <polygon points="50,28 60,56 40,56" fill="url(#blueShade)"/>
+                <polygon points="37,58 63,58 60,67 40,67" fill="#e68a00"/>
+            </svg>
         </div>
         Anything Shop
     </a>
@@ -287,13 +334,6 @@ HTML_TEMPLATE = """
     {% endwith %}
 
     {% if page == 'home' or page == 'search' or page == 'category' %}
-        <div class="welcome-banner">
-            <div>
-                <h3>أهلاً بك في متجر Anything Shop التجاري المتكامل!</h3>
-                <p>استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب خصم 10% باستخدام كود الخصم (أي حاجة شوب).</p>
-            </div>
-        </div>
-
         <h2>{{ 'نتائج البحث عن: ' ~ search_query if page == 'search' else ('منتجات قسم: ' ~ current_cat if page == 'category' else 'المنتجات المتاحة') }}</h2>
         {% if products %}
             <div class="products-grid">
@@ -314,22 +354,8 @@ HTML_TEMPLATE = """
                 </div>
                 {% endfor %}
             </div>
-
-            {% if total_product_pages > 1 %}
-            <div class="pagination-box">
-                {% for p in range(1, total_product_pages + 1) %}
-                    {% if page == 'home' %}
-                        <a href="/?page={{ p }}" class="{% if current_product_page == p %}active{% endif %}">{{ p }}</a>
-                    {% elif page == 'category' %}
-                        <a href="/category/{{ current_cat }}?page={{ p }}" class="{% if current_product_page == p %}active{% endif %}">{{ p }}</a>
-                    {% elif page == 'search' %}
-                        <a href="/search?q={{ search_query }}&page={{ p }}" class="{% if current_product_page == p %}active{% endif %}">{{ p }}</a>
-                    {% endif %}
-                {% endfor %}
-            </div>
-            {% endif %}
         {% else %}
-            <p>لم يتم العثور على منتجات.</p>
+            <p style="font-size:16px;">لم يتم العثور على منتجات.</p>
         {% endif %}
 
     {% elif page == 'register' %}
@@ -341,11 +367,14 @@ HTML_TEMPLATE = """
                 <div class="form-group"><label>البريد الإلكتروني</label><input type="email" name="email" required></div>
                 <div class="form-group"><label>كلمة المرور</label><input type="password" name="password" required></div>
                 <div class="form-group"><label>رقم الهاتف</label><input type="tel" name="phone" placeholder="01xxxxxxxxx" required></div>
-                <div class="form-group"><label>العنوان بالكامل</label><textarea name="address" rows="2" required></textarea></div>
+                <div class="form-group"><label>العنوان بالكامل</label><textarea name="address" rows="2" placeholder="المحافظة - المدينة - الشارع" required></textarea></div>
                 <div class="form-group"><label>تاريخ الميلاد</label><input type="date" name="birth_date" required></div>
                 <button type="submit" class="btn-submit">تسجيل الحساب</button>
             </form>
-            <a href="/login/google" class="btn-google">🌐 التسجيل بواسطة جوجل</a>
+            <a href="/login/google" class="btn-social">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" alt="Google">
+                أو التسجيل السريع بواسطة Google
+            </a>
         </div>
 
     {% elif page == 'profile' %}
@@ -354,7 +383,7 @@ HTML_TEMPLATE = """
             <form action="/profile" method="POST">
                 <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" value="{{ current_user.first_name }}" required></div>
                 <div class="form-group"><label>الاسم الأخير</label><input type="text" name="last_name" value="{{ current_user.last_name }}" required></div>
-                <div class="form-group"><label>البريد الإلكتروني</label><input type="email" value="{{ current_user.email }}" disabled style="background:#eee;"></div>
+                <div class="form-group"><label>البريد الإلكتروني (لا يمكن تعديله)</label><input type="email" value="{{ current_user.email }}" disabled style="background:#eee;"></div>
                 <div class="form-group"><label>رقم الهاتف</label><input type="tel" name="phone" value="{{ current_user.phone or '' }}" required></div>
                 <div class="form-group"><label>العنوان بالكامل</label><textarea name="address" rows="2" required>{{ current_user.address or '' }}</textarea></div>
                 <div class="form-group"><label>تاريخ الميلاد</label><input type="date" name="birth_date" value="{{ current_user.birth_date or '' }}"></div>
@@ -364,30 +393,43 @@ HTML_TEMPLATE = """
 
     {% elif page == 'cart' %}
         <h2>سلة التسوق</h2>
+        {% if is_first_order and cart_items %}
+        <div class="promo-banner">
+            <h3>🎉 مبروك! لديك خصم ترحيبي 10% على أول أوردر لك</h3>
+            <p>انقر على الكود أدناه لتفعيله مباشرة في سلة التسوق:</p>
+            <form action="/apply-coupon" method="POST" style="display:inline;">
+                <input type="hidden" name="coupon_code" value="Anything Shop 10">
+                <button type="submit" class="promo-code-box" style="border:none; cursor:pointer;">Anything Shop 10</button>
+            </form>
+        </div>
+        {% endif %}
+
         {% if cart_items %}
-            <table class="cart-table">
-                <thead><tr><th>المنتج</th><th>السعر</th><th>الكمية</th><th>الإجمالي</th></tr></thead>
-                <tbody>
-                    {% for item in cart_items %}
-                    <tr><td>{{ item.name }}</td><td>{{ item.price }} ج.م</td><td>{{ item.qty }}</td><td>{{ "%.2f"|format(item.price * item.qty) }} ج.م</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            
-            <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
-                <form action="/apply-coupon" method="POST" style="display:flex; gap:10px; align-items:center;">
-                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم (مثال: أي حاجة شوب)" value="{{ session.get('applied_coupon', '') }}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
-                    <button type="submit" style="background:#232f3e; color:#fff; border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">تطبيق الكود</button>
+            <div style="overflow-x: auto;">
+                <table class="cart-table">
+                    <thead><tr><th>المنتج</th><th>السعر</th><th>الكمية</th><th>الإجمالي</th></tr></thead>
+                    <tbody>
+                        {% for item in cart_items %}
+                        <tr><td>{{ item.name }}</td><td>{{ item.price }} ج.م</td><td>{{ item.qty }}</td><td>{{ "%.2f"|format(item.price * item.qty) }} ج.م</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="background:white; color:#333; padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+                <form action="/apply-coupon" method="POST" style="display:flex; gap:8px; flex-wrap: wrap;">
+                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم هنا" value="{{ session.get('applied_coupon', '') }}" style="flex-grow:1; padding:8px; border:1px solid #ccc; border-radius:4px; font-size: 13px;">
+                    <button type="submit" style="background:#232f3e; color:white; border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer; font-size: 13px;">تطبيق الكود</button>
                 </form>
-                {% if session.get('applied_coupon') == 'أي حاجة شوب' %}
-                    <p style="color: green; margin-top: 8px; font-weight: bold; font-size: 13px;">✅ تم تطبيق خصم العرض الأول (10%) بنجاح!</p>
+                {% if session.get('applied_coupon') %}
+                    <p style="color:green; margin-top:6px; font-size: 12px;">✅ تم تفعيل الكود بنجاح (خصم 10%) <a href="/remove-coupon" style="color:red; text-decoration:none; margin-right:8px;">[إلغاء]</a></p>
                 {% endif %}
             </div>
 
-            <div style="text-align:left; background:var(--card-bg); padding:12px; border-radius:8px; margin-bottom:15px;">
-                <p>إجمالي المنتجات: {{ "%.2f"|format(total_price) }} ج.م</p>
+            <div style="text-align:left; background:white; color:#333; padding:12px; border-radius:8px; margin-bottom:15px;">
+                <p>إجمالي المنتجات: <strong>{{ "%.2f"|format(total_price) }} ج.م</strong></p>
                 {% if discount_amount > 0 %}
-                    <p style="color: green;">قيمة الخصم (10%): -{{ "%.2f"|format(discount_amount) }} ج.م</p>
+                    <p style="color:green;">قيمة الخصم: <strong>- {{ "%.2f"|format(discount_amount) }} ج.م</strong></p>
                 {% endif %}
                 <p>مصاريف الشحن: <strong>{{ "%.2f"|format(settings.shipping_fee) }} ج.م</strong></p>
                 <h3 style="color: var(--price-color);">الإجمالي النهائي: {{ "%.2f"|format(final_total) }} ج.م</h3>
@@ -398,13 +440,7 @@ HTML_TEMPLATE = """
                 <form action="/checkout" method="POST">
                     <div class="form-group"><label>رقم الهاتف للتواصل</label><input type="tel" name="phone" value="{{ current_user.phone or '' }}" required></div>
                     <div class="form-group"><label>عنوان التوصيل بالكامل</label><textarea name="address" rows="2" required>{{ current_user.address or '' }}</textarea></div>
-                    <div class="form-group">
-                        <label>طريقة الدفع</label>
-                        <select name="payment_method" required>
-                            <option value="cod">الدفع عند الاستلام (كاش)</option>
-                            <option value="card">بطاقة ائتمان (فيزا/ماستركارد) عبر Paymob</option>
-                        </select>
-                    </div>
+                    <div class="form-group"><label>طريقة الدفع</label><select name="payment_method" required><option value="Cash">الدفع عند الاستلام (كاش)</option><option value="Paymob">الدفع الإلكتروني الآمن عبر Paymob</option></select></div>
                     <button type="submit" class="btn-submit">تأكيد ومتابعة الطلب</button>
                 </form>
             </div>
@@ -412,32 +448,16 @@ HTML_TEMPLATE = """
             <p>سلة التسوق فارغة حالياً.</p>
         {% endif %}
 
-    {% elif page == 'payment_result' %}
-        <div class="payment-status-box {{ 'success' if order.payment_status == 'Paid' else ('failed' if order.payment_status == 'Failed' else 'pending') }}">
-            {% if order.payment_status == 'Paid' %}
-                <h2>✅ تم الدفع بنجاح!</h2>
-                <p>شكراً لك، تم تأكيد طلبك رقم #{{ order.id }} وسيتم تجهيزه للشحن.</p>
-            {% elif order.payment_status == 'Failed' %}
-                <h2>❌ فشلت عملية الدفع</h2>
-                <p>لم تتم عملية الدفع بنجاح لطلبك رقم #{{ order.id }}. برجاء المحاولة مرة أخرى أو التواصل مع الدعم الفني.</p>
-            {% else %}
-                <h2>⏳ جاري تأكيد الدفع...</h2>
-                <p>طلبك رقم #{{ order.id }} قيد المراجعة، سيتم تحديث الحالة تلقائياً خلال لحظات.</p>
-            {% endif %}
-            <a href="/orders" class="nav-btn" style="display:inline-block; margin-top:15px;">عرض طلباتي</a>
-        </div>
-
     {% elif page == 'orders' %}
-        <h2>طلباتي السابقة</h2>
+        <h2>طلباتي</h2>
         {% for order in orders %}
-            <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+            <div style="background:white; color:#333; padding:12px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc; font-size: 13px;">
                 <h4>طلب رقم #{{ order.id }} - {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</h4>
+                <p><strong>حالة الدفع:</strong> <span class="{% if order.payment_status == 'Paid' %}status-paid{% else %}status-pending{% endif %}">{{ order.payment_status }}</span></p>
                 <p><strong>طريقة الدفع:</strong> {{ order.payment_method }}</p>
-                <p><strong>حالة الدفع:</strong> {{ order.payment_status }}</p>
-                <p><strong>رقم الهاتف:</strong> {{ order.phone }}</p>
                 <p><strong>العنوان:</strong> {{ order.address }}</p>
                 {% if order.discount_amount > 0 %}
-                    <p><strong>الخصم المطبق:</strong> {{ "%.2f"|format(order.discount_amount) }} ج.م</p>
+                    <p><strong>الخصم المطبق:</strong> - {{ "%.2f"|format(order.discount_amount) }} ج.م</p>
                 {% endif %}
                 <h3 style="color: var(--price-color);">المبلغ الإجمالي: {{ "%.2f"|format(order.total_price) }} ج.م</h3>
             </div>
@@ -445,170 +465,109 @@ HTML_TEMPLATE = """
 
     {% elif page == 'admin' %}
         <h2>⚙️ لوحة تحكم الأدمن</h2>
-
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-chat')">
-                <span>💬 المحادثات الحية والدعم الفني (للعملاء المسجلين فقط)</span>
-                <span>▼</span>
+        
+        <h3>💬 نظام الدعم الفني والمحادثات الحية مع العملاء</h3>
+        <div class="live-chat-admin-container">
+            <div class="chat-sidebar">
+                <h4>قائمة المحادثات</h4>
+                {% if not chat_sessions %}
+                    <div style="padding: 10px; color: #777; text-align: center; font-size: 11px;">لا توجد محادثات نشطة.</div>
+                {% endif %}
+                {% for conv in chat_sessions %}
+                    <a href="/admin?session={{ conv.session_id }}" class="client-chat-item {% if active_session == conv.session_id %}active{% endif %}">
+                        <div>
+                            <strong>العميل:</strong> {{ conv.email or 'زوار عامون' }}<br>
+                            <small style="color: #666;">📞 {{ conv.phone or 'غير متوفر' }}</small><br>
+                            <small style="color: #444;">{{ conv.last_time[:16] }}</small>
+                        </div>
+                        {% if conv.unread_count > 0 %}
+                            <span class="badge-notification" style="position: static;">{{ conv.unread_count }}</span>
+                        {% endif %}
+                    </a>
+                {% endfor %}
             </div>
-            <div id="sec-chat" class="admin-section-content {% if active_session %}open{% endif %}">
-                <div class="live-chat-admin-container">
-                    <div class="chat-sidebar">
-                        <div class="chat-sidebar-list">
-                            {% for conv in paged_chats %}
-                                <a href="/admin?session={{ conv.session_id }}&chat_page={{ chat_page }}" class="client-chat-item {% if active_session == conv.session_id %}active{% endif %}">
-                                    <div>
-                                        <strong>{{ conv.email }}</strong><br>
-                                        <small>{{ conv.last_time[:16] }}</small>
-                                    </div>
-                                    {% if conv.unread_count > 0 %}
-                                        <span class="badge-notification" style="position:static;">{{ conv.unread_count }}</span>
-                                    {% endif %}
-                                </a>
-                            {% endfor %}
-                        </div>
-                        {% if total_chat_pages > 1 %}
-                        <div class="pagination-box" style="margin:5px 0;">
-                            {% for p in range(1, total_chat_pages + 1) %}
-                                <a href="/admin?chat_page={{ p }}{% if active_session %}&session={{ active_session }}{% endif %}" class="{% if chat_page == p %}active{% endif %}">{{ p }}</a>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
+            <div class="chat-main-area">
+                {% if active_session %}
+                    <div class="admin-messages-box" id="adminMsgBox"></div>
+                    <form class="admin-reply-box" id="adminReplyForm">
+                        <input type="text" id="adminReplyInput" placeholder="اكتب ردك كأدمن هنا..." required autocomplete="off">
+                        <button type="submit">إرسال</button>
+                    </form>
+                {% else %}
+                    <div style="padding: 30px; text-align: center; color: #666; margin-top: 50px; font-size: 13px;">
+                        <h4>اختر محادثة من القائمة الجانبية للبدء بالرد الفوري.</h4>
                     </div>
-                    <div class="chat-main-area">
-                        {% if active_session %}
-                            <div class="admin-messages-box" id="adminMsgBox"></div>
-                            <form class="admin-reply-box" id="adminReplyForm">
-                                <input type="text" id="adminReplyInput" placeholder="اكتب ردك هنا..." required autocomplete="off">
-                                <button type="submit">إرسال</button>
-                            </form>
-                        {% else %}
-                            <div style="padding: 40px; text-align: center; color: #666;">اختر محادثة للبدء.</div>
-                        {% endif %}
-                    </div>
-                </div>
+                {% endif %}
             </div>
         </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-orders')">
-                <span>📦 إدارة الأوردرات وتفاصيل الدفع (إجمالي: {{ total_orders_count }})</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-orders" class="admin-section-content">
-                <table class="admin-table">
-                    <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>طريقة الدفع</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
-                    <tbody>
-                        {% for ord in paged_orders %}
-                        <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
-                            <td>#{{ ord.id }}</td>
-                            <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
-                            <td>{{ ord.phone }}</td>
-                            <td><span style="background: #e2e8f0; padding: 3px 6px; border-radius: 4px; font-weight: bold;">{{ ord.payment_method }}</span></td>
-                            <td>{{ ord.address }}</td>
-                            <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
-                            <td>{{ ord.payment_status }}</td>
-                            <td><a href="/admin/mark-order-read/{{ ord.id }}" style="color:#0084ff; text-decoration:none;">تحديد كمقروء</a></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-categories')">
-                <span>📂 إدارة أقسام الموقع</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-categories" class="admin-section-content">
-                <form action="/admin/add-category" method="POST" style="display:flex; gap:10px; margin-bottom:15px;">
-                    <input type="text" name="cat_name" placeholder="اسم القسم الجديد..." required style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
-                    <button type="submit" style="background:var(--primary-color); border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">إضافة قسم</button>
-                </form>
-                <ul style="list-style:none; padding:0;">
-                    {% for cat in custom_categories %}
-                        <li style="display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid #eee;">
-                            <form action="/admin/edit-category/{{ cat.id }}" method="POST" style="display:flex; gap:8px; flex:1; align-items:center;">
-                                <input type="text" name="new_name" value="{{ cat.name }}" required style="padding:5px; border:1px solid #ccc; border-radius:4px; width:200px;">
-                                <button type="submit" class="btn-edit">تحديث الاسم</button>
-                            </form>
-                            <a href="/admin/delete-category/{{ cat.id }}" class="btn-danger" onclick="return confirm('حذف القسم؟')">حذف</a>
-                        </li>
+        <h3>📦 إدارة الأوردرات الجديدة</h3>
+        <div style="overflow-x: auto;">
+            <table class="admin-table">
+                <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
+                <tbody>
+                    {% for ord in all_orders %}
+                    <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
+                        <td>#{{ ord.id }} {% if not ord.is_read %}<span style="background:red; color:white; font-size:9px; padding:2px 4px; border-radius:4px;">جديد</span>{% endif %}</td>
+                        <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
+                        <td>{{ ord.phone }}</td>
+                        <td>{{ ord.address }}</td>
+                        <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
+                        <td><span class="status-pending">{{ ord.payment_status }}</span></td>
+                        <td><a href="/admin/mark-order-read/{{ ord.id }}" style="font-size:11px; color:#0084ff; text-decoration:none;">تحديد كمقروء</a></td>
+                    </tr>
                     {% endfor %}
-                </ul>
-            </div>
+                </tbody>
+            </table>
         </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-add-prod')">
-                <span>➕ إضافة منتج جديد</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-add-prod" class="admin-section-content">
+        <div class="admin-grid">
+            <div class="admin-card">
+                <h3>➕ إضافة منتج جديد</h3>
                 <form action="/admin/add-product" method="POST" enctype="multipart/form-data">
                     <div class="form-group"><label>اسم المنتج</label><input type="text" name="name" required></div>
                     <div class="form-group"><label>السعر (ج.م)</label><input type="number" step="0.01" name="price" required></div>
-                    <div class="form-group"><label>القسم</label>
-                        <select name="category" required style="width:100%; padding:9px; border:1px solid #ccc; border-radius:4px;">
-                            {% for cat in custom_categories %}<option value="{{ cat.name }}">{{ cat.name }}</option>{% endfor %}
-                        </select>
+                    <div class="form-group"><label>القسم</label><input type="text" name="category" required></div>
+                    <div class="form-group">
+                        <label>صورة المنتج</label>
+                        <input type="file" name="image_file" accept="image/*" style="margin-bottom:6px; font-size: 12px;">
+                        <input type="url" name="image" placeholder="أو أدخل رابط صورة مباشر (URL)">
                     </div>
-                    <div class="form-group"><label>رفع صورة المنتج</label><input type="file" name="image_file" accept="image/*"></div>
-                    <div class="form-group"><label>أو رابط صورة خارجي</label><input type="url" name="image_url"></div>
                     <button type="submit" class="btn-submit">حفظ المنتج</button>
                 </form>
             </div>
-        </div>
-
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-manage-prod')">
-                <span>🛠️ إدارة وتعديل المنتجات</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-manage-prod" class="admin-section-content">
-                <table class="admin-table">
-                    <thead><tr><th>#</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>إجراءات</th></tr></thead>
-                    <tbody>
-                        {% for p in all_products %}
-                        <tr>
-                            <td>{{ p.id }}</td>
-                            <td><b>{{ p.name }}</b></td><td>{{ p.category }}</td><td>{{ p.price }} ج.م</td>
-                            <td>
-                                <a href="/admin/edit-product/{{ p.id }}" class="btn-edit">تعديل</a>
-                                <a href="/admin/delete-product/{{ p.id }}" class="btn-danger" onclick="return confirm('تأكيد الحذف؟')">حذف</a>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-design')">
-                <span>🎨 التحكم الكامل في ألوان الديزاين، الأيقونات، والشعار</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-design" class="admin-section-content">
-                <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
-                    <div class="form-group"><label>رفع شعار الموقع (Logo)</label><input type="file" name="logo_file" accept="image/*"></div>
-                    <div class="form-group"><label>أو رابط الشعار (Logo URL)</label><input type="url" name="logo_url" value="{{ settings.logo_url or '' }}"></div>
-                    
-                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
-                        <div class="form-group"><label>لون الهيدر</label><input type="color" name="header_color" value="{{ settings.header_color }}"></div>
-                        <div class="form-group"><label>اللون الرئيسي</label><input type="color" name="primary_color" value="{{ settings.primary_color }}"></div>
-                        <div class="form-group"><label>لون الأسعار</label><input type="color" name="price_color" value="{{ settings.price_color }}"></div>
-                        <div class="form-group"><label>لون خلفية الموقع العامة</label><input type="color" name="bg_color" value="{{ settings.bg_color }}"></div>
-                        <div class="form-group"><label>لون النصوص</label><input type="color" name="text_color" value="{{ settings.text_color }}"></div>
-                        <div class="form-group"><label>لون الأيقونات والروابط العلوية</label><input type="color" name="icon_color" value="{{ settings.icon_color }}"></div>
-                        <div class="form-group"><label>لون خلفية البطاقات (Cards)</label><input type="color" name="card_bg_color" value="{{ settings.card_bg_color }}"></div>
-                    </div>
-
-                    <div class="form-group" style="margin-top:10px;"><label>مصاريف الشحن</label><input type="number" step="0.01" name="shipping_fee" value="{{ settings.shipping_fee }}" required></div>
-                    <button type="submit" class="btn-submit">حفظ كافة تعديلات التصميم والألوان</button>
+            <div class="admin-card">
+                <h3>🎨 تصميم الموقع</h3>
+                <form action="/admin/update-settings" method="POST">
+                    <div class="form-group"><label>لون الهيدر</label><input type="color" name="header_color" value="{{ settings.header_color }}"></div>
+                    <div class="form-group"><label>اللون الرئيسي</label><input type="color" name="primary_color" value="{{ settings.primary_color }}"></div>
+                    <div class="form-group"><label>لون الأسعار</label><input type="color" name="price_color" value="{{ settings.price_color }}"></div>
+                    <div class="form-group"><label>لون الخلفية</label><input type="color" name="bg_color" value="{{ settings.bg_color }}"></div>
+                    <div class="form-group"><label>حجم الخط</label><input type="number" name="font_size" value="{{ settings.font_size }}" required></div>
+                    <div class="form-group"><label>مصاريف الشحن</label><input type="number" step="0.01" name="shipping_fee" value="{{ settings.shipping_fee }}" required></div>
+                    <button type="submit" class="btn-submit">حفظ التصميم</button>
                 </form>
             </div>
+        </div>
+
+        <h3>🛠️ إدارة المنتجات</h3>
+        <div style="overflow-x: auto;">
+            <table class="admin-table">
+                <thead><tr><th>#</th><th>الصورة</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>إجراءات</th></tr></thead>
+                <tbody>
+                    {% for p in all_products %}
+                    <tr>
+                        <td>{{ p.id }}</td>
+                        <td><img src="{{ p.image }}" style="width:35px; height:35px; object-fit:cover; border-radius:4px;"></td>
+                        <td><b>{{ p.name }}</b></td><td>{{ p.category }}</td><td>{{ p.price }} ج.م</td>
+                        <td>
+                            <a href="/admin/edit-product/{{ p.id }}" class="btn-edit">تعديل</a>
+                            <a href="/admin/delete-product/{{ p.id }}" class="btn-danger" onclick="return confirm('تأكيد الحذف؟')">حذف</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
 
     {% elif page == 'edit_product' %}
@@ -617,15 +576,12 @@ HTML_TEMPLATE = """
             <form action="/admin/edit-product/{{ edit_prod.id }}" method="POST" enctype="multipart/form-data">
                 <div class="form-group"><label>الاسم</label><input type="text" name="name" value="{{ edit_prod.name }}" required></div>
                 <div class="form-group"><label>السعر</label><input type="number" step="0.01" name="price" value="{{ edit_prod.price }}" required></div>
-                <div class="form-group"><label>القسم</label>
-                    <select name="category" required style="width:100%; padding:9px; border:1px solid #ccc; border-radius:4px;">
-                        {% for cat in custom_categories %}
-                            <option value="{{ cat.name }}" {% if edit_prod.category == cat.name %}selected{% endif %}>{{ cat.name }}</option>
-                        {% endfor %}
-                    </select>
+                <div class="form-group"><label>القسم</label><input type="text" name="category" value="{{ edit_prod.category }}" required></div>
+                <div class="form-group">
+                    <label>تحديث الصورة</label>
+                    <input type="file" name="image_file" accept="image/*" style="margin-bottom:6px; font-size: 12px;">
+                    <input type="url" name="image" value="{{ edit_prod.image }}" required>
                 </div>
-                <div class="form-group"><label>رفع صورة جديدة</label><input type="file" name="image_file" accept="image/*"></div>
-                <div class="form-group"><label>رابط الصورة الحالي</label><input type="url" name="image_url" value="{{ edit_prod.image }}"></div>
                 <button type="submit" class="btn-submit">حفظ التعديلات</button>
             </form>
         </div>
@@ -638,82 +594,161 @@ HTML_TEMPLATE = """
                 <div class="form-group"><label>كلمة المرور</label><input type="password" name="password" required></div>
                 <button type="submit" class="btn-submit">تسجيل الدخول</button>
             </form>
-            <a href="/login/google" class="btn-google">🌐 الدخول بواسطة جوجل</a>
+            <a href="/login/google" class="btn-social">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" alt="Google">
+                تسجيل الدخول بواسطة Google
+            </a>
         </div>
     {% endif %}
 </div>
 
-{% if current_user.is_authenticated %}
-<div id="support-chat-btn" class="chat-widget-btn">💬</div>
+<!-- زر الشات العائم للعميل -->
+<div id="support-chat-btn" class="chat-widget-btn">
+    💬
+    <span>الدعم</span>
+</div>
+
+<!-- نافذة محادثة ودعم العملاء المنبثقة مع التحقق من تسجيل الدخول والبيانات -->
 <div id="support-chat-window" class="chat-popup">
-    <div class="chat-header"><span>الدعم الفني المباشر</span><button id="close-chat">✕</button></div>
+    <div class="chat-header">
+        <span>الدعم الفني المباشر</span>
+        <button id="close-chat">✕</button>
+    </div>
+    <div class="chat-notice">
+        ⏰ يرجى إدخال البريد ورقم الهاتف للبدء.
+    </div>
     <div id="chat-messages" class="chat-messages-container"></div>
     <div class="chat-footer">
+        {% if not current_user.is_authenticated %}
+            <div class="chat-footer-row">
+                <input type="email" id="chat-client-email" placeholder="البريد الإلكتروني..." autocomplete="off">
+                <input type="tel" id="chat-client-phone" placeholder="رقم الهاتف..." autocomplete="off">
+            </div>
+        {% endif %}
         <div class="chat-footer-row">
             <input type="text" id="chat-input" placeholder="اكتب رسالتك هنا..." autocomplete="off">
             <button id="chat-send">إرسال</button>
         </div>
+        {% if not current_user.is_authenticated %}
+            <small style="color:#d9534f; font-size:10px; text-align:center;">يجب تسجيل الدخول أو إدخال البريد والهاتف للمراسلة.</small>
+        {% endif %}
     </div>
 </div>
-{% endif %}
 
 <script>
-function toggleSection(id) {
-    const box = document.getElementById(id);
-    if (box) { box.classList.toggle('open'); }
-}
-
 document.addEventListener("DOMContentLoaded", function() {
-    {% if current_user.is_authenticated %}
-    let sessionId = 'user_session_{{ current_user.id }}';
+    {% if current_user.is_authenticated and current_user.is_admin %}
+    function checkAdminNotifications() {
+        fetch('/api/admin/notifications')
+            .then(res => res.json())
+            .then(data => {
+                const totalUnread = data.unread_messages + data.unread_orders;
+                const badge = document.getElementById('global-admin-badge');
+                if (badge) {
+                    if (totalUnread > 0) {
+                        badge.innerText = totalUnread;
+                        badge.style.display = 'inline-block';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                }
+            });
+    }
+    setInterval(checkAdminNotifications, 5000);
+    checkAdminNotifications();
+    {% endif %}
+
+    let sessionId = localStorage.getItem('support_session_id');
+    if (!sessionId) {
+        sessionId = 'session_' + Math.random().toString(36).substring(2) + Date.now();
+        localStorage.setItem('support_session_id', sessionId);
+    }
+
     const btn = document.getElementById('support-chat-btn');
     const win = document.getElementById('support-chat-window');
     const closeBtn = document.getElementById('close-chat');
     const sendBtn = document.getElementById('chat-send');
     const input = document.getElementById('chat-input');
+    const emailInput = document.getElementById('chat-client-email');
+    const phoneInput = document.getElementById('chat-client-phone');
     const msgContainer = document.getElementById('chat-messages');
 
     let isChatOpen = false;
+
     if (btn && win) {
-        btn.onclick = () => { isChatOpen = !isChatOpen; win.style.display = isChatOpen ? 'flex' : 'none'; if(isChatOpen) fetchMsgs(); };
-        closeBtn.onclick = () => { isChatOpen = false; win.style.display = 'none'; };
+        btn.onclick = () => {
+            isChatOpen = !isChatOpen;
+            win.style.display = isChatOpen ? 'flex' : 'none';
+            if (isChatOpen) fetchClientMessages();
+        };
+        closeBtn.onclick = () => {
+            isChatOpen = false;
+            win.style.display = 'none';
+        };
     }
 
-    function fetchMsgs() {
-        fetch('/api/chat/messages?session_id=' + sessionId).then(res => res.json()).then(data => {
-            if (data.status === 'success') {
-                msgContainer.innerHTML = '';
-                data.messages.forEach(m => {
-                    const div = document.createElement('div');
-                    div.className = 'chat-msg ' + m.sender_type;
-                    div.innerText = m.message;
-                    msgContainer.appendChild(div);
-                });
-                msgContainer.scrollTop = msgContainer.scrollHeight;
-            }
-        });
+    function fetchClientMessages() {
+        fetch('/api/chat/messages?session_id=' + sessionId)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    msgContainer.innerHTML = '';
+                    if (data.messages.length === 0) {
+                        msgContainer.innerHTML = '<div style="text-align:center; color:#888; font-size:11px; margin-top:15px;">أهلاً بك! يرجى إدخال البريد ورقم الهاتف ومراسلتنا.</div>';
+                    }
+                    data.messages.forEach(msg => {
+                        const div = document.createElement('div');
+                        div.className = 'chat-msg ' + msg.sender_type;
+                        div.innerText = msg.message;
+                        msgContainer.appendChild(div);
+                    });
+                    msgContainer.scrollTop = msgContainer.scrollHeight;
+                }
+            });
     }
 
     if (sendBtn && input) {
-        sendBtn.onclick = sendMsg;
-        input.onkeypress = (e) => { if (e.key === 'Enter') sendMsg(); };
+        sendBtn.onclick = sendClientMessage;
+        input.onkeypress = (e) => { if (e.key === 'Enter') sendClientMessage(); };
     }
 
-    function sendMsg() {
+    function sendClientMessage() {
         const text = input.value.trim();
         if (!text) return;
-        const fd = new FormData();
-        fd.append('action', 'client_send');
-        fd.append('session_id', sessionId);
-        fd.append('message', text);
-        fd.append('client_email', '{{ current_user.email }}');
-        fd.append('client_phone', '{{ current_user.phone or "غير محدد" }}');
-        
-        fetch('/api/chat/send', { method: 'POST', body: fd }).then(res => res.json()).then(data => {
-            if (data.status === 'success') { input.value = ''; fetchMsgs(); }
-        });
+
+        let email = "{{ current_user.email if current_user.is_authenticated else '' }}";
+        let phone = "{{ current_user.phone if current_user.is_authenticated else '' }}";
+
+        if (!email && emailInput) email = emailInput.value.trim();
+        if (!phone && phoneInput) phone = phoneInput.value.trim();
+
+        if (!email || !phone) {
+            alert("عذراً، يجب إدخال البريد الإلكتروني ورقم الهاتف أولاً لكي تتمكن من إرسال رسالة الدعم الفني.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('action', 'client_send');
+        formData.append('session_id', sessionId);
+        formData.append('message', text);
+        formData.append('client_email', email);
+        formData.append('client_phone', phone);
+
+        fetch('/api/chat/send', { method: 'POST', body: formData })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    input.value = '';
+                    fetchClientMessages();
+                } else {
+                    alert(data.message || "حدث خطأ أثناء الإرسال");
+                }
+            });
     }
-    {% endif %}
+
+    setInterval(() => {
+        if (isChatOpen) fetchClientMessages();
+    }, 4000);
 
     const adminMsgBox = document.getElementById('adminMsgBox');
     const adminReplyForm = document.getElementById('adminReplyForm');
@@ -722,225 +757,73 @@ document.addEventListener("DOMContentLoaded", function() {
     const activeSession = urlParams.get('session');
 
     if (adminMsgBox && activeSession) {
-        function fetchAdminMsgs() {
-            fetch('/api/chat/messages?session_id=' + activeSession).then(res => res.json()).then(data => {
-                if (data.status === 'success') {
-                    adminMsgBox.innerHTML = '';
-                    data.messages.forEach(m => {
-                        const div = document.createElement('div');
-                        div.className = 'admin-msg-bubble ' + m.sender_type;
-                        div.innerText = m.message;
-                        adminMsgBox.appendChild(div);
-                    });
-                    adminMsgBox.scrollTop = adminMsgBox.scrollHeight;
-                }
-            });
+        function fetchAdminMessages() {
+            fetch('/api/chat/messages?session_id=' + activeSession)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        adminMsgBox.innerHTML = '';
+                        data.messages.forEach(msg => {
+                            const div = document.createElement('div');
+                            div.className = 'admin-msg-bubble ' + msg.sender_type;
+                            let infoHeader = "";
+                            if (msg.sender_type === 'client' && (msg.client_email || msg.client_phone)) {
+                                infoHeader = `<div style="font-size:10px; font-weight:bold; color:#0056b3; margin-bottom:3px;">📧 ${msg.client_email || 'بدون بريد'} | 📞 ${msg.client_phone || 'بدون هاتف'}</div>`;
+                            }
+                            div.innerHTML = infoHeader + (msg.message ? msg.message.replace(/\\n/g, '<br>') : '') + 
+                                            `<div style="font-size:9px; opacity:0.7; margin-top:2px; text-align:left;">${msg.created_at}</div>`;
+                            adminMsgBox.appendChild(div);
+                        });
+                        adminMsgBox.scrollTop = adminMsgBox.scrollHeight;
+                    }
+                });
         }
-        fetchAdminMsgs();
-        setInterval(fetchAdminMsgs, 4000);
+
+        fetchAdminMessages();
+        setInterval(fetchAdminMessages, 4000);
 
         if (adminReplyForm && adminReplyInput) {
             adminReplyForm.onsubmit = (e) => {
                 e.preventDefault();
                 const text = adminReplyInput.value.trim();
                 if (!text) return;
-                const fd = new FormData();
-                fd.append('action', 'admin_send');
-                fd.append('session_id', activeSession);
-                fd.append('message', text);
-                fetch('/api/chat/send', { method: 'POST', body: fd }).then(res => res.json()).then(data => {
-                    if (data.status === 'success') { adminReplyInput.value = ''; fetchAdminMsgs(); }
-                });
+
+                const formData = new FormData();
+                formData.append('action', 'admin_send');
+                formData.append('session_id', activeSession);
+                formData.append('message', text);
+
+                fetch('/api/chat/send', { method: 'POST', body: formData })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            adminReplyInput.value = '';
+                            fetchAdminMessages();
+                        }
+                    });
             };
         }
     }
 });
 </script>
-<footer><small>©️ 2026 Anything Shop - جميع الحقوق محفوظة.</small></footer>
+
+<footer>
+    <div class="footer-content">
+        <div class="footer-support">
+            <h4>مركز المساعدة والدعم الفني</h4>
+            <p>هل تحتاج إلى المساعدة أو استفسار بخصوص طلبك؟ استخدم زر <strong>الدعم الفوري</strong> العائم أسفل الشاشة للتحدث معنا مباشرة في أي وقت.</p>
+        </div>
+        <small>©️ 2026 Anything Shop - جميع الحقوق محفوظة.</small>
+    </div>
+</footer>
 </body>
 </html>
 """
 
-# ============================================================
-# ===================  تكامل Paymob الحقيقي  ==================
-# ============================================================
-PAYMOB_API_KEY = os.environ.get("PAYMOB_API_KEY")
-PAYMOB_INTEGRATION_ID = os.environ.get("PAYMOB_INTEGRATION_ID")
-PAYMOB_IFRAME_ID = os.environ.get("PAYMOB_IFRAME_ID")  # لازم تضيفه في .env من لوحة Paymob
-PAYMOB_HMAC_KEY = os.environ.get("PAYMOB_HMAC_KEY")
-
-PAYMOB_BASE_URL = "https://accept.paymob.com/api"
-
-
-class PaymobError(Exception):
-    pass
-
-
-def paymob_get_auth_token():
-    """الخطوة 1: الحصول على auth token من Paymob باستخدام الـ API Key."""
-    try:
-        resp = requests.post(
-            f"{PAYMOB_BASE_URL}/auth/tokens",
-            json={"api_key": PAYMOB_API_KEY},
-            timeout=15
-        )
-        resp.raise_for_status()
-        return resp.json()["token"]
-    except Exception as e:
-        raise PaymobError(f"فشل الحصول على توكن المصادقة من Paymob: {e}")
-
-
-def paymob_register_order(auth_token, amount_cents, merchant_order_id, items):
-    """الخطوة 2: تسجيل الأوردر على سيرفرات Paymob."""
-    payload = {
-        "auth_token": auth_token,
-        "delivery_needed": "false",
-        "amount_cents": str(int(amount_cents)),
-        "currency": "EGP",
-        "merchant_order_id": str(merchant_order_id),
-        "items": items,
-    }
-    try:
-        resp = requests.post(f"{PAYMOB_BASE_URL}/ecommerce/orders", json=payload, timeout=15)
-        resp.raise_for_status()
-        return resp.json()["id"]
-    except Exception as e:
-        raise PaymobError(f"فشل تسجيل الأوردر على Paymob: {e}")
-
-
-def paymob_get_payment_key(auth_token, amount_cents, paymob_order_id, billing_data):
-    """الخطوة 3: طلب payment key المستخدم لفتح صفحة الدفع (iframe)."""
-    payload = {
-        "auth_token": auth_token,
-        "amount_cents": str(int(amount_cents)),
-        "expiration": 3600,
-        "order_id": paymob_order_id,
-        "billing_data": billing_data,
-        "currency": "EGP",
-        "integration_id": int(PAYMOB_INTEGRATION_ID),
-    }
-    try:
-        resp = requests.post(f"{PAYMOB_BASE_URL}/acceptance/payment_keys", json=payload, timeout=15)
-        resp.raise_for_status()
-        return resp.json()["token"]
-    except Exception as e:
-        raise PaymobError(f"فشل الحصول على مفتاح الدفع من Paymob: {e}")
-
-
-def paymob_start_payment(order, user):
-    """
-    ينفذ خطوات Paymob الثلاثة كاملة ويرجع رابط الـ iframe اللي المفروض
-    نوجّه له العميل عشان يدخل بيانات الفيزا ويدفع فعلياً.
-    """
-    if not (PAYMOB_API_KEY and PAYMOB_INTEGRATION_ID and PAYMOB_IFRAME_ID):
-        raise PaymobError(
-            "إعدادات Paymob غير مكتملة في ملف .env "
-            "(محتاج PAYMOB_API_KEY, PAYMOB_INTEGRATION_ID, PAYMOB_IFRAME_ID)."
-        )
-
-    amount_cents = int(round(order.total_price * 100))
-
-    items_json = json.loads(order.items_json)
-    paymob_items = [
-        {
-            "name": it["name"][:255],
-            "amount_cents": str(int(round(it["price"] * 100))),
-            "description": it["name"][:255],
-            "quantity": it["qty"],
-        }
-        for it in items_json
-    ]
-
-    # نقسم اسم العميل لاسم أول وأخير كما يطلب Paymob
-    first_name = user.first_name or "Customer"
-    last_name = user.last_name or "Shop"
-
-    billing_data = {
-        "apartment": "NA",
-        "email": user.email,
-        "floor": "NA",
-        "first_name": first_name,
-        "street": (order.address or "NA")[:255],
-        "building": "NA",
-        "phone_number": order.phone or "01000000000",
-        "shipping_method": "NA",
-        "postal_code": "NA",
-        "city": "Cairo",
-        "country": "EG",
-        "last_name": last_name,
-        "state": "NA",
-    }
-
-    auth_token = paymob_get_auth_token()
-    paymob_order_id = paymob_register_order(
-        auth_token, amount_cents, order.id, paymob_items
-    )
-    payment_key = paymob_get_payment_key(
-        auth_token, amount_cents, paymob_order_id, billing_data
-    )
-
-    order.paymob_order_id = str(paymob_order_id)
-    db.session.commit()
-
-    iframe_url = f"{PAYMOB_BASE_URL.replace('/api', '')}/api/acceptance/iframes/{PAYMOB_IFRAME_ID}?payment_token={payment_key}"
-    return iframe_url
-
-
-def verify_paymob_hmac(data, received_hmac):
-    """
-    التحقق من الـ HMAC اللي بيبعته Paymob مع كل نداء webhook/callback
-    للتأكد إن الرسالة فعلاً جايه من Paymob ومحدش تلاعب فيها.
-    ترتيب الحقول ده محدد من توثيق Paymob (Transaction Processed Callback).
-    """
-    ordered_keys = [
-        "amount_cents", "created_at", "currency", "error_occured",
-        "has_parent_transaction", "id", "integration_id", "is_3d_secure",
-        "is_auth", "is_capture", "is_refunded", "is_standalone_payment",
-        "is_voided", "order.id", "owner", "pending", "source_data.pan",
-        "source_data.sub_type", "source_data.type", "success",
-    ]
-
-    def get_nested(d, dotted_key):
-        parts = dotted_key.split(".")
-        val = d
-        for p in parts:
-            if val is None:
-                return ""
-            val = val.get(p) if isinstance(val, dict) else None
-        return val
-
-    concatenated = ""
-    for key in ordered_keys:
-        val = get_nested(data, key)
-        if val is None:
-            val = ""
-        if isinstance(val, bool):
-            val = "true" if val else "false"
-        concatenated += str(val)
-
-    calculated_hmac = hmac.new(
-        PAYMOB_HMAC_KEY.encode("utf-8"),
-        concatenated.encode("utf-8"),
-        hashlib.sha512
-    ).hexdigest()
-
-    return hmac.compare_digest(calculated_hmac, received_hmac or "")
-
-
-# --- مساعد رفع الصور ---
+# --- Helpers ---
 UPLOAD_FOLDER = 'static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-def save_uploaded_file(file_storage):
-    if file_storage and file_storage.filename != '':
-        if not os.path.exists(UPLOAD_FOLDER):
-            os.makedirs(UPLOAD_FOLDER)
-        filename = secure_filename(file_storage.filename)
-        unique_filename = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
-        filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
-        file_storage.save(filepath)
-        return f"/{filepath}"
-    return None
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def get_cart_count():
     return sum(session.get('cart', {}).values())
@@ -953,157 +836,129 @@ def get_settings():
         db.session.commit()
     return settings
 
-def get_categories_list():
-    cats = Category.query.all()
-    if not cats:
-        default_cats = ["أحذية", "إلكترونيات", "مأكولات ومشروبات", "لبان وحلويات"]
-        for name in default_cats:
-            db.session.add(Category(name=name))
-        db.session.commit()
-        cats = Category.query.all()
-    return [c.name for c in cats]
+def get_categories():
+    return [c[0] for c in db.session.query(Product.category).distinct().all()]
 
-# --- المسارات الأساسية ---
+# --- Routes ---
 @app.route("/")
 def home():
-    page_num = int(request.args.get('page', 1))
-    per_page = 10
-    query = Product.query
-    total_count = query.count()
-    total_pages = (total_count + per_page - 1) // per_page
-    paged_products = query.offset((page_num - 1) * per_page).limit(per_page).all()
-    
-    return render_template_string(
-        HTML_TEMPLATE, page='home', products=paged_products, 
-        current_product_page=page_num, total_product_pages=total_pages,
-        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="All", settings=get_settings()
-    )
+    return render_template_string(HTML_TEMPLATE, page='home', products=Product.query.all(), cart_count=get_cart_count(), categories_list=get_categories(), current_cat="All", settings=get_settings())
 
 @app.route("/category/<cat_name>")
 def category_view(cat_name):
-    page_num = int(request.args.get('page', 1))
-    per_page = 10
-    query = Product.query.filter_by(category=cat_name)
-    total_count = query.count()
-    total_pages = (total_count + per_page - 1) // per_page
-    paged_products = query.offset((page_num - 1) * per_page).limit(per_page).all()
-
-    return render_template_string(
-        HTML_TEMPLATE, page='category', products=paged_products, 
-        current_product_page=page_num, total_product_pages=total_pages,
-        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat=cat_name, settings=get_settings()
-    )
+    return render_template_string(HTML_TEMPLATE, page='category', products=Product.query.filter_by(category=cat_name).all(), cart_count=get_cart_count(), categories_list=get_categories(), current_cat=cat_name, settings=get_settings())
 
 @app.route("/search")
 def search():
-    query_str = request.args.get("q", "").strip()
-    if not query_str: return redirect(url_for('home'))
+    query = request.args.get("q", "").strip()
+    if not query: return redirect(url_for('home'))
+    filters = [Product.name.ilike(f"%{w}%") for w in query.split()] + [Product.category.ilike(f"%{w}%") for w in query.split()]
+    return render_template_string(HTML_TEMPLATE, page='search', products=Product.query.filter(db.or_(*filters)).all(), search_query=query, cart_count=get_cart_count(), categories_list=get_categories(), current_cat="", settings=get_settings())
+
+@app.route("/api/admin/notifications", methods=["GET"])
+def api_admin_notifications():
+    if not current_user.is_authenticated or not current_user.is_admin:
+        return jsonify({"unread_messages": 0, "unread_orders": 0})
     
-    page_num = int(request.args.get('page', 1))
-    per_page = 10
-    filters = [Product.name.ilike(f"%{w}%") for w in query_str.split()] + [Product.category.ilike(f"%{w}%") for w in query_str.split()]
-    query = Product.query.filter(db.or_(*filters))
-    
-    total_count = query.count()
-    total_pages = (total_count + per_page - 1) // per_page
-    paged_products = query.offset((page_num - 1) * per_page).limit(per_page).all()
+    unread_messages = SupportMessage.query.filter_by(sender_type='client', is_read=False).count()
+    unread_orders = Order.query.filter_by(is_read=False).count()
+    return jsonify({"unread_messages": unread_messages, "unread_orders": unread_orders})
 
-    return render_template_string(
-        HTML_TEMPLATE, page='search', products=paged_products, search_query=query_str,
-        current_product_page=page_num, total_product_pages=total_pages,
-        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="", settings=get_settings()
-    )
-
-# --- مسارات Google OAuth ---
-@app.route('/login/google')
-def google_login():
-    redirect_uri = url_for('google_auth', _external=True)
-    return google.authorize_redirect(redirect_uri)
-
-@app.route('/login/google/callback')
-def google_auth():
-    token = google.authorize_access_token()
-    user_info = token.get('userinfo')
-    if not user_info:
-        resp = google.get('userinfo')
-        user_info = resp.json()
-    
-    email = user_info.get('email')
-    first_name = user_info.get('given_name', 'Google')
-    last_name = user_info.get('family_name', 'User')
-    avatar = user_info.get('picture')
-
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        user = User(
-            first_name=first_name, last_name=last_name, email=email,
-            phone="01000000000", address="غير محدد", avatar_url=avatar, auth_provider='google'
-        )
-        db.session.add(user)
-        db.session.commit()
-    
-    login_user(user)
-    return redirect(url_for('home'))
-
-# --- مسارات الشات (مخصصة للمسجلين فقط) ---
 @app.route("/api/chat/send", methods=["POST"])
-@login_required
 def api_chat_send():
-    action, session_id, message = request.form.get("action"), request.form.get("session_id"), request.form.get("message", "").strip()
-    if not session_id or not message: return jsonify({"status": "error"})
-    
+    action = request.form.get("action")
+    session_id = request.form.get("session_id")
+    message = request.form.get("message", "").strip()
+
+    if not session_id or not message:
+        return jsonify({"status": "error", "message": "بيانات غير صالحة"})
+
     if action == "client_send":
-        db.session.add(SupportMessage(
-            user_id=current_user.id, session_id=session_id, sender_type="client", message=message, 
-            client_email=current_user.email, client_phone=current_user.phone, is_read=False
-        ))
+        client_email = request.form.get("client_email", "").strip()
+        client_phone = request.form.get("client_phone", "").strip()
+
+        # التحقق من تسجيل الدخول أو إدخال البريد والهاتف إلزاميًا
+        if not current_user.is_authenticated and (not client_email or not client_phone):
+            return jsonify({"status": "error", "message": "البريد الإلكتروني ورقم الهاتف إلزاميان للبدء."})
+
+        if current_user.is_authenticated:
+            client_email = current_user.email
+            client_phone = current_user.phone
+
+        msg = SupportMessage(
+            session_id=session_id, 
+            sender_type="client", 
+            message=message, 
+            client_email=client_email, 
+            client_phone=client_phone, 
+            is_read=False
+        )
+        db.session.add(msg)
         db.session.commit()
         return jsonify({"status": "success"})
-    elif action == "admin_send" and current_user.is_admin:
-        client_msg = SupportMessage.query.filter_by(session_id=session_id).first()
-        u_id = client_msg.user_id if client_msg else current_user.id
-        db.session.add(SupportMessage(user_id=u_id, session_id=session_id, sender_type="admin", message=message, is_read=True))
+
+    elif action == "admin_send" and current_user.is_authenticated and current_user.is_admin:
+        msg = SupportMessage(session_id=session_id, sender_type="admin", message=message, is_read=True)
+        db.session.add(msg)
         db.session.commit()
         return jsonify({"status": "success"})
-    return jsonify({"status": "error"})
+
+    return jsonify({"status": "error", "message": "صلاحيات غير مرفوعة"})
 
 @app.route("/api/chat/messages", methods=["GET"])
-@login_required
 def api_chat_messages():
     session_id = request.args.get("session_id")
-    if not session_id: return jsonify({"status": "error", "messages": []})
+    if not session_id:
+        return jsonify({"status": "error", "messages": []})
+    
+    if current_user.is_authenticated and current_user.is_admin:
+        SupportMessage.query.filter_by(session_id=session_id, sender_type='client').update({SupportMessage.is_read: True})
+        db.session.commit()
+
     messages = SupportMessage.query.filter_by(session_id=session_id).order_by(SupportMessage.created_at.asc()).all()
-    msgs_list = [{"sender_type": m.sender_type, "message": m.message} for m in messages]
+    msgs_list = [{
+        "sender_type": m.sender_type,
+        "message": m.message,
+        "client_email": m.client_email,
+        "client_phone": m.client_phone,
+        "created_at": m.created_at.strftime('%Y-%m-%d %H:%M')
+    } for m in messages]
+
     return jsonify({"status": "success", "messages": msgs_list})
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        f_name, l_name, email, password = request.form.get("first_name"), request.form.get("last_name"), request.form.get("email"), request.form.get("password")
+        first_name, last_name, email, password = request.form.get("first_name"), request.form.get("last_name"), request.form.get("email"), request.form.get("password")
+        phone, address, birth_date = request.form.get("phone"), request.form.get("address"), request.form.get("birth_date")
+
         if User.query.filter_by(email=email).first():
-            flash("البريد مسجل مسبقاً.")
+            flash("البريد الإلكتروني مسجل مسبقاً.")
             return redirect(url_for('register'))
+
         new_user = User(
-            first_name=f_name, last_name=l_name, email=email,
+            first_name=first_name, last_name=last_name, email=email,
             password_hash=generate_password_hash(password, method='scrypt'),
-            phone=request.form.get("phone"), address=request.form.get("address"), birth_date=request.form.get("birth_date")
+            phone=phone, address=address, birth_date=birth_date, auth_provider='local'
         )
         db.session.add(new_user)
         db.session.commit()
         login_user(new_user)
+        flash("تم إنشاء الحساب وتسجيل الدخول بنجاح! مبروك كود الخصم الترحيبي Anything Shop 10")
         return redirect(url_for('home'))
-    return render_template_string(HTML_TEMPLATE, page='register', cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
+
+    return render_template_string(HTML_TEMPLATE, page='register', cart_count=get_cart_count(), categories_list=get_categories(), settings=get_settings())
 
 @app.route("/profile", methods=["GET", "POST"])
 @login_required
 def profile():
     if request.method == "POST":
         current_user.first_name, current_user.last_name = request.form.get("first_name"), request.form.get("last_name")
-        current_user.phone, current_user.address = request.form.get("phone"), request.form.get("address")
+        current_user.phone, current_user.address, current_user.birth_date = request.form.get("phone"), request.form.get("address"), request.form.get("birth_date")
         db.session.commit()
-        flash("تم التحديث بنجاح!")
+        flash("تم تحديث بيانات البروفايل بنجاح!")
         return redirect(url_for('profile'))
-    return render_template_string(HTML_TEMPLATE, page='profile', cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
+    return render_template_string(HTML_TEMPLATE, page='profile', cart_count=get_cart_count(), categories_list=get_categories(), settings=get_settings())
 
 @app.route("/add-to-cart", methods=["POST"])
 def add_to_cart():
@@ -1111,18 +966,23 @@ def add_to_cart():
     cart = session.get('cart', {})
     cart[p_id] = cart.get(p_id, 0) + 1
     session['cart'] = cart
-    flash("تمت الإضافة للسلة!")
+    flash("تمت إضافة المنتج للسلة بنجاح!")
     return redirect(request.referrer or url_for('home'))
 
 @app.route("/apply-coupon", methods=["POST"])
 def apply_coupon():
     code = request.form.get("coupon_code", "").strip()
-    if code == "أي حاجة شوب":
-        session['applied_coupon'] = "أي حاجة شوب"
-        flash("تم تطبيق كود الخصم (أي حاجة شوب) بنجاح!")
+    if code == "Anything Shop 10":
+        session['applied_coupon'] = code
+        flash("تم تفعيل كود الخصم (10%) بنجاح!")
     else:
-        session.pop('applied_coupon', None)
-        flash("كود الخصم غير صحيح.")
+        flash("كود الخصم غير صحيح أو منتهي الصلاحية.")
+    return redirect(url_for('view_cart'))
+
+@app.route("/remove-coupon")
+def remove_coupon():
+    session.pop('applied_coupon', None)
+    flash("تم إلغاء كود الخصم.")
     return redirect(url_for('view_cart'))
 
 @app.route("/cart")
@@ -1135,132 +995,254 @@ def view_cart():
             total_price += product.price * qty
             cart_items.append({"name": product.name, "price": product.price, "qty": qty})
     
-    settings = get_settings()
+    is_first_order = False
+    if current_user.is_authenticated and Order.query.filter_by(user_id=current_user.id).count() == 0:
+        is_first_order = True
+
     discount_amount = 0.0
-    if session.get('applied_coupon') == "أي حاجة شوب":
+    if session.get('applied_coupon') == "Anything Shop 10":
         discount_amount = total_price * 0.10
-    
+
+    settings = get_settings()
     final_total = (total_price - discount_amount) + settings.shipping_fee
-    if final_total < 0: final_total = 0.0
 
     return render_template_string(
         HTML_TEMPLATE, page='cart', cart_items=cart_items, total_price=total_price, 
-        discount_amount=discount_amount, final_total=final_total, 
-        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Cart", settings=settings
+        discount_amount=discount_amount, final_total=final_total, is_first_order=is_first_order,
+        cart_count=get_cart_count(), categories_list=get_categories(), current_cat="Cart", settings=settings
     )
 
 @app.route("/checkout", methods=["POST"])
 @login_required
 def checkout():
+    phone, address, payment_method = request.form.get("phone"), request.form.get("address"), request.form.get("payment_method")
     cart = session.get('cart', {})
     if not cart: return redirect(url_for('home'))
-    
+
     order_items, items_price = [], 0.0
     for p_id_str, qty in cart.items():
         product = Product.query.get(int(p_id_str))
         if product:
             items_price += product.price * qty
             order_items.append({"name": product.name, "price": product.price, "qty": qty})
-            
-    settings = get_settings()
+
     discount_amount = 0.0
-    if session.get('applied_coupon') == "أي حاجة شوب":
+    if session.get('applied_coupon') == "Anything Shop 10":
         discount_amount = items_price * 0.10
 
+    settings = get_settings()
     total_price = (items_price - discount_amount) + settings.shipping_fee
-    if total_price < 0: total_price = 0.0
-
-    payment_method = request.form.get("payment_method", "cod")
 
     new_order = Order(
-        user_id=current_user.id, phone=request.form.get("phone"), address=request.form.get("address"), 
-        payment_method="card" if payment_method == "card" else "cod",
-        payment_status='Pending',
-        items_price=items_price, shipping_fee=settings.shipping_fee, discount_amount=discount_amount,
-        total_price=total_price, items_json=json.dumps(order_items)
+        user_id=current_user.id, phone=phone, address=address, payment_method=payment_method,
+        payment_status='Pending' if payment_method == 'Paymob' else 'Cash on Delivery',
+        items_price=items_price, discount_amount=discount_amount, shipping_fee=settings.shipping_fee, 
+        total_price=total_price, items_json=json.dumps(order_items), is_read=False
     )
     db.session.add(new_order)
     db.session.commit()
-
-    # الكارت والكوبون بيتفضّوا سواء دفع كاش أو كارت، عشان الأوردر اتسجل بالفعل
+    
     session['cart'] = {}
     session.pop('applied_coupon', None)
 
-    if payment_method == "card":
-        try:
-            iframe_url = paymob_start_payment(new_order, current_user)
-            return redirect(iframe_url)
-        except PaymobError as e:
-            new_order.payment_status = "Failed"
-            db.session.commit()
-            flash(f"تعذر بدء عملية الدفع الإلكتروني: {e}")
-            return redirect(url_for('my_orders'))
-
-    new_order.payment_status = "Cash on Delivery"
-    db.session.commit()
-    flash("تم تسجيل الطلب بنجاح!")
+    flash("تم تسجيل طلبك بنجاح!")
     return redirect(url_for('my_orders'))
 
+@app.route("/login/google")
+def login_google():
+    return google.authorize_redirect(url_for('google_callback', _external=True))
 
-@app.route("/payment/callback")
-def paymob_callback():
-    """
-    الصفحة اللي المتصفح بيرجّع لها العميل بعد الدفع (Transaction Response Callback).
-    دي بس لعرض النتيجة للعميل - التحديث الفعلي للحالة بيحصل في /payment/webhook
-    (السيرفر لسيرفر) لأنه الوحيد اللي مينفعش يتزوّر من غير الـ HMAC السليم.
-    """
-    data = request.args.to_dict()
-    received_hmac = data.get("hmac")
+@app.route("/login/google/callback")
+def google_callback():
+    token = google.authorize_access_token()
+    user_info = token.get('userinfo')
+    if user_info:
+        email = user_info['email']
+        name_parts = user_info.get('name', 'مستخدم جوجل').split(' ', 1)
+        first_name, last_name = name_parts[0], name_parts[1] if len(name_parts) > 1 else 'جوجل'
+        picture = user_info.get('picture', '')
 
-    order_id = data.get("merchant_order_id")
-    order = Order.query.get(int(order_id)) if order_id and order_id.isdigit() else None
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            user = User(
+                first_name=first_name, last_name=last_name, email=email,
+                auth_provider='google', avatar_url=picture,
+                is_admin=(email == "admin@shop.com"),
+                phone="01000000000", address="يرجى تحديث العنوان", birth_date="2000-01-01"
+            )
+            db.session.add(user)
+            db.session.commit()
 
-    if order and verify_paymob_hmac(data, received_hmac):
-        success = data.get("success") == "true"
-        order.payment_status = "Paid" if success else "Failed"
-        db.session.commit()
-    
-    if not order:
-        flash("لم يتم العثور على الطلب.")
-        return redirect(url_for('home'))
-
-    return render_template_string(
-        HTML_TEMPLATE, page='payment_result', order=order,
-        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="", settings=get_settings()
-    )
-
-
-@app.route("/payment/webhook", methods=["POST"])
-def paymob_webhook():
-    """
-    نداء سيرفر-لسيرفر من Paymob (Transaction Processed Callback) - ده المصدر
-    الموثوق فيه لتحديث حالة الدفع، لأنه بيحمل HMAC بيتحقق منه السيرفر مباشرة.
-    """
-    payload = request.get_json(silent=True) or {}
-    obj = payload.get("obj", payload)
-    received_hmac = request.args.get("hmac")
-
-    if not verify_paymob_hmac(obj, received_hmac):
-        return jsonify({"status": "error", "message": "invalid hmac"}), 401
-
-    merchant_order_id = (obj.get("order") or {}).get("merchant_order_id")
-    if not merchant_order_id:
-        return jsonify({"status": "error", "message": "no order id"}), 400
-
-    order = Order.query.get(int(merchant_order_id))
-    if not order:
-        return jsonify({"status": "error", "message": "order not found"}), 404
-
-    order.payment_status = "Paid" if obj.get("success") else "Failed"
-    db.session.commit()
-    return jsonify({"status": "success"})
-
+        login_user(user)
+        flash("تم تسجيل الدخول بواسطة Google بنجاح!")
+    return redirect(url_for('home'))
 
 @app.route("/orders")
 @login_required
 def my_orders():
-    return render_template_string(HTML_TEMPLATE, page='orders', orders=Order.query.filter_by(user_id=current_user.id).all(), cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Orders", settings=get_settings())
+    return render_template_string(HTML_TEMPLATE, page='orders', orders=Order.query.filter_by(user_id=current_user.id).order_by(Order.created_at.desc()).all(), cart_count=get_cart_count(), categories_list=get_categories(), current_cat="Orders", settings=get_settings())
 
-# --- لوحة تحكم الأدمن ---
 @app.route("/admin")
 @login_required
+def admin_panel():
+    if not current_user.is_admin: 
+        flash("عذراً، هذه الصفحة مخصصة للأدمن فقط.")
+        return redirect(url_for('home'))
+    
+    subquery = db.session.query(
+        SupportMessage.session_id, 
+        db.func.max(SupportMessage.created_at).label('max_time')
+    ).group_by(SupportMessage.session_id).subquery()
+    
+    raw_sessions = db.session.query(subquery.c.session_id, subquery.c.max_time.label('last_time'))\
+                      .order_by(subquery.c.max_time.desc()).all()
+    
+    chat_sessions = []
+    for s in raw_sessions:
+        unread_cnt = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client', is_read=False).count()
+        
+        # استخراج بيانات العميل (البريد والهاتف) الخاصة بهذه الجلسة إن وجدت لتجنب أخطاء العرض
+        first_msg = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client').first()
+        c_email = first_msg.client_email if first_msg and first_msg.client_email else "زائر عام"
+        c_phone = first_msg.client_phone if first_msg and first_msg.client_phone else ""
+
+        chat_sessions.append({
+            "session_id": s.session_id,
+            "last_time": str(s.last_time),
+            "unread_count": unread_cnt,
+            "email": c_email,
+            "phone": c_phone
+        })
+    
+    active_session = request.args.get("session")
+    if not active_session and chat_sessions:
+        active_session = chat_sessions[0]["session_id"]
+
+    return render_template_string(
+        HTML_TEMPLATE, page='admin', 
+        all_orders=Order.query.order_by(Order.created_at.desc()).all(), 
+        all_products=Product.query.order_by(Product.id.desc()).all(), 
+        chat_sessions=chat_sessions, active_session=active_session,
+        cart_count=get_cart_count(), categories_list=get_categories(), current_cat="Admin", settings=get_settings()
+    )
+
+@app.route("/admin/mark-order-read/<int:order_id>")
+@login_required
+def mark_order_read(order_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    ord = Order.query.get_or_404(order_id)
+    ord.is_read = True
+    db.session.commit()
+    return redirect(url_for('admin_panel'))
+
+@app.route("/admin/add-product", methods=["POST"])
+@login_required
+def admin_add_product():
+    if not current_user.is_admin: return redirect(url_for('home'))
+    
+    name, price, category = request.form.get("name"), float(request.form.get("price")), request.form.get("category")
+    image_url = request.form.get("image")
+    
+    image_file = request.files.get('image_file')
+    if image_file and image_file.filename != '':
+        filename = datetime.now().strftime("%Y%m%d%H%M%S_") + image_file.filename
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        image_file.save(filepath)
+        image_url = f"/{filepath}"
+
+    db.session.add(Product(name=name, price=price, category=category, image=image_url))
+    db.session.commit()
+    flash("تمت إضافة المنتج بنجاح!")
+    return redirect(url_for('admin_panel'))
+
+@app.route("/admin/edit-product/<int:prod_id>", methods=["GET", "POST"])
+@login_required
+def admin_edit_product(prod_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    prod = Product.query.get_or_404(prod_id)
+    if request.method == "POST":
+        prod.name = request.form.get("name")
+        prod.price = float(request.form.get("price"))
+        prod.category = request.form.get("category")
+        
+        image_url = request.form.get("image")
+        image_file = request.files.get('image_file')
+        if image_file and image_file.filename != '':
+            filename = datetime.now().strftime("%Y%m%d%H%M%S_") + image_file.filename
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            image_file.save(filepath)
+            image_url = f"/{filepath}"
+            
+        prod.image = image_url
+        db.session.commit()
+        flash("تم تعديل المنتج بنجاح!")
+        return redirect(url_for('admin_panel'))
+    return render_template_string(HTML_TEMPLATE, page='edit_product', edit_prod=prod, cart_count=get_cart_count(), categories_list=get_categories(), settings=get_settings())
+
+@app.route("/admin/delete-product/<int:prod_id>")
+@login_required
+def admin_delete_product(prod_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    db.session.delete(Product.query.get_or_404(prod_id))
+    db.session.commit()
+    flash("تم حذف المنتج بنجاح.")
+    return redirect(url_for('admin_panel'))
+
+@app.route("/admin/update-settings", methods=["POST"])
+@login_required
+def admin_update_settings():
+    if not current_user.is_admin: return redirect(url_for('home'))
+    settings = get_settings()
+    settings.header_color, settings.primary_color, settings.price_color = request.form.get("header_color"), request.form.get("primary_color"), request.form.get("price_color")
+    settings.bg_color, settings.font_size, settings.shipping_fee = request.form.get("bg_color"), int(request.form.get("font_size")), float(request.form.get("shipping_fee"))
+    db.session.commit()
+    flash("تم تحديث إعدادات التصميم بنجاح!")
+    return redirect(url_for('admin_panel'))
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+        user = User.query.filter_by(email=email).first()
+        
+        if user and user.password_hash and check_password_hash(user.password_hash, password):
+            login_user(user)
+            return redirect(url_for('admin_panel' if user.is_admin else 'home'))
+        
+        flash("بيانات الدخول غير صحيحة.")
+    return render_template_string(HTML_TEMPLATE, page='login', cart_count=get_cart_count(), categories_list=get_categories(), settings=get_settings())
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('home'))
+
+def seed_data():
+    if Product.query.count() == 0:
+        db.session.add_all([
+            Product(name="لبانة نعناع نكهة ممتازة", price=0.50, category="مأكولات ومشروبات", image="https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?w=400"),
+            Product(name="حذاء رياضي Pro", price=450.0, category="أحذية", image="https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400"),
+            Product(name="سماعة لاسلكية Bluetooth", price=650.0, category="إلكترونيات", image="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400")
+        ])
+        db.session.commit()
+    
+    admin_user = User.query.filter_by(email="admin@shop.com").first()
+    if not admin_user:
+        db.session.add(User(
+            first_name="أحمد", last_name="الأدمن", email="admin@shop.com", 
+            password_hash=generate_password_hash("admin123", method='scrypt'), 
+            is_admin=True, phone="01000000000", address="القاهرة", birth_date="2000-01-01"
+        ))
+        db.session.commit()
+    else:
+        admin_user.is_admin = True
+        db.session.commit()
+
+with app.app_context():
+    db.create_all()
+    seed_data()
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
