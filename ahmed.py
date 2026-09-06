@@ -89,7 +89,7 @@ class SiteSettings(db.Model):
     total_visits = db.Column(db.Integer, default=0)
     site_name = db.Column(db.String(150), default='Anything Shop')
     welcome_title = db.Column(db.String(200), default='أهلاً بك في متجرنا التجاري المتكامل!')
-    welcome_text = db.Column(db.Text, default='استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب.')
+    welcome_text = db.Column(db.Text, default='استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب. استخدم كود الخصم (Anything 10) للحصول على خصم 10% على أول طلب.')
     banner_image_url = db.Column(db.String(500), nullable=True)
     coupon_code = db.Column(db.String(100), default='Anything 10')
 
@@ -315,7 +315,7 @@ HTML_TEMPLATE = """
         <div class="welcome-banner">
             <div>
                 <h3>{{ settings.welcome_title or ('أهلاً بك في متجر ' ~ (settings.site_name or 'Anything Shop') ~ '!') }}</h3>
-                <p>{{ settings.welcome_text or 'استمتع بتجربة تسوق فريدة.' }} استخدم كود الخصم ({{ settings.coupon_code or 'Anything 10' }}) للحصول على خصم 10% على أول طلب.</p>
+                <p>{{ settings.welcome_text }}</p>
             </div>
         </div>
 
@@ -732,7 +732,7 @@ HTML_TEMPLATE = """
             <div id="sec-homepage" class="admin-section-content">
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
                     <div class="form-group"><label>عنوان الترحيب في الصفحة الرئيسية</label><input type="text" name="welcome_title" value="{{ settings.welcome_title or '' }}"></div>
-                    <div class="form-group"><label>نص الترحيب / الوصف تحت العنوان</label><textarea name="welcome_text" rows="2">{{ settings.welcome_text or '' }}</textarea></div>
+                    <div class="form-group"><label>نص الترحيب / الوصف تحت العنوان (السطر ده كله قابل للتعديل، تقدر تحذف أو تعدل ذكر كود الخصم منه براحتك)</label><textarea name="welcome_text" rows="3">{{ settings.welcome_text or '' }}</textarea></div>
                     <div class="form-group"><label>رفع صورة إعلان/عرض (بانر) للصفحة الرئيسية</label><input type="file" name="banner_image_file" accept="image/*"></div>
                     <div class="form-group"><label>أو رابط صورة الإعلان</label><input type="url" name="banner_image_url" value="{{ settings.banner_image_url or '' }}" placeholder="اتركه فارغاً لو عايز تشيل الإعلان"></div>
                     <div class="form-group"><label>كود الخصم الحالي (10% لأول طلب لكل عميل)</label><input type="text" name="coupon_code" value="{{ settings.coupon_code or 'Anything 10' }}" required></div>
@@ -1159,14 +1159,15 @@ def get_settings():
     if not settings.welcome_title:
         settings.welcome_title = f"أهلاً بك في متجر {settings.site_name}!"
         changed = True
-    if not settings.welcome_text:
-        settings.welcome_text = "استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب."
-        changed = True
     if not settings.coupon_code:
         settings.coupon_code = "Anything 10"
         changed = True
+    if not settings.welcome_text:
+        settings.welcome_text = f"استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب. استخدم كود الخصم ({settings.coupon_code}) للحصول على خصم 10% على أول طلب."
+        changed = True
     if changed:
         db.session.commit()
+
 
     return settings
 
