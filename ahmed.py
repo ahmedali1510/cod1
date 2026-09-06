@@ -68,6 +68,7 @@ class Product(db.Model):
     price = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(100), nullable=False)
     image = db.Column(db.String(500), nullable=False)
+    is_sold_out = db.Column(db.Boolean, default=False)
 
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -87,6 +88,10 @@ class SiteSettings(db.Model):
     logo_url = db.Column(db.String(500), nullable=True)
     total_visits = db.Column(db.Integer, default=0)
     site_name = db.Column(db.String(150), default='Anything Shop')
+    welcome_title = db.Column(db.String(200), default='أهلاً بك في متجرنا التجاري المتكامل!')
+    welcome_text = db.Column(db.Text, default='استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب.')
+    banner_image_url = db.Column(db.String(500), nullable=True)
+    coupon_code = db.Column(db.String(100), default='Anything 10')
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -304,16 +309,22 @@ HTML_TEMPLATE = """
     {% endwith %}
 
     {% if page == 'home' or page == 'search' or page == 'category' %}
+        {% if settings.banner_image_url %}
+            <img src="{{ settings.banner_image_url }}" alt="عرض خاص" style="width:100%; max-height:280px; object-fit:cover; border-radius:8px; margin-bottom:20px;">
+        {% endif %}
         <div class="welcome-banner">
             <div>
-                <h3>أهلاً بك في متجر {{ settings.site_name or 'Anything Shop' }} التجاري المتكامل!</h3>
-                <p>استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب خصم 10% باستخدام كود الخصم (Anything 10).</p>
+                <h3>{{ settings.welcome_title or ('أهلاً بك في متجر ' ~ (settings.site_name or 'Anything Shop') ~ '!') }}</h3>
+                <p>{{ settings.welcome_text or 'استمتع بتجربة تسوق فريدة.' }} استخدم كود الخصم ({{ settings.coupon_code or 'Anything 10' }}) للحصول على خصم 10% على أول طلب.</p>
             </div>
         </div>
 
         <h2>{{ 'نتائج البحث عن: ' ~ search_query if page == 'search' else ('منتجات قسم: ' ~ current_cat if page == 'category' else 'المنتجات المتاحة') }}</h2>
         {% macro product_card(product) %}
-        <div class="card">
+        <div class="card" style="{% if product.is_sold_out %}opacity:0.6;{% endif %}position:relative;">
+            {% if product.is_sold_out %}
+            <div style="position:absolute; top:8px; left:8px; background:#dc3545; color:#fff; font-size:11px; font-weight:bold; padding:3px 8px; border-radius:4px; z-index:2;">نفذت الكمية</div>
+            {% endif %}
             <div>
                 <img src="{{ product.image }}" alt="{{ product.name }}">
                 <div class="card-title">{{ product.name }}</div>
@@ -321,10 +332,15 @@ HTML_TEMPLATE = """
             </div>
             <div>
                 <div class="card-price">{{ product.price }} ج.م</div>
-                <form action="/add-to-cart" method="POST">
+                {% if product.is_sold_out %}
+                    <button type="button" class="btn-add" disabled style="background:#ccc; border-color:#bbb; cursor:not-allowed;">نفذت الكمية</button>
+                {% else %}
+                <form action="/add-to-cart" method="POST" style="display:flex; gap:6px; align-items:center;">
                     <input type="hidden" name="product_id" value="{{ product.id }}">
-                    <button type="submit" class="btn-add">أضف إلى السلة</button>
+                    <input type="number" name="qty" value="1" min="1" max="99" style="width:55px; padding:6px 4px; border:1px solid #ccc; border-radius:4px; text-align:center; font-size:13px;">
+                    <button type="submit" class="btn-add" style="flex:1;">أضف إلى السلة</button>
                 </form>
+                {% endif %}
             </div>
         </div>
         {% endmacro %}
@@ -407,10 +423,10 @@ HTML_TEMPLATE = """
             
             <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
                 <form action="/apply-coupon" method="POST" style="display:flex; gap:10px; align-items:center;">
-                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم (مثال: Anything 10)" value="{{ session.get('applied_coupon', '') }}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم (مثال: {{ settings.coupon_code or 'Anything 10' }})" value="{{ session.get('applied_coupon', '') }}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
                     <button type="submit" style="background:#232f3e; color:#fff; border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">تطبيق الكود</button>
                 </form>
-                {% if session.get('applied_coupon') == 'Anything 10' %}
+                {% if session.get('applied_coupon') == (settings.coupon_code or 'Anything 10') %}
                     <p style="color: green; margin-top: 8px; font-weight: bold; font-size: 13px;">✅ تم تطبيق خصم العرض الأول (10%) بنجاح!</p>
                 {% endif %}
             </div>
@@ -683,20 +699,46 @@ HTML_TEMPLATE = """
             </div>
             <div id="sec-manage-prod" class="admin-section-content">
                 <table class="admin-table">
-                    <thead><tr><th>#</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>إجراءات</th></tr></thead>
+                    <thead><tr><th>#</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody>
                         {% for p in all_products %}
                         <tr>
                             <td>{{ p.id }}</td>
                             <td><b>{{ p.name }}</b></td><td>{{ p.category }}</td><td>{{ p.price }} ج.م</td>
                             <td>
+                                {% if p.is_sold_out %}
+                                    <span style="background:#f8d7da; color:#721c24; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:bold;">نفذت الكمية</span>
+                                {% else %}
+                                    <span style="background:#d4edda; color:#155724; padding:3px 8px; border-radius:4px; font-size:11px; font-weight:bold;">متاح</span>
+                                {% endif %}
+                            </td>
+                            <td>
                                 <a href="/admin/edit-product/{{ p.id }}" class="btn-edit">تعديل</a>
+                                <a href="/admin/toggle-sold-out/{{ p.id }}" class="btn-edit" style="background:{{ '#28a745' if p.is_sold_out else '#dc3545' }}; color:#fff;">{{ 'إعادة التفعيل' if p.is_sold_out else 'نفذت الكمية' }}</a>
                                 <a href="/admin/delete-product/{{ p.id }}" class="btn-danger" onclick="return confirm('تأكيد الحذف؟')">حذف</a>
                             </td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <div class="admin-section-box">
+            <div class="admin-section-header" onclick="toggleSection('sec-homepage')">
+                <span>🏠 محتوى الصفحة الرئيسية، العروض، وكود الخصم</span>
+                <span>▼</span>
+            </div>
+            <div id="sec-homepage" class="admin-section-content">
+                <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
+                    <div class="form-group"><label>عنوان الترحيب في الصفحة الرئيسية</label><input type="text" name="welcome_title" value="{{ settings.welcome_title or '' }}"></div>
+                    <div class="form-group"><label>نص الترحيب / الوصف تحت العنوان</label><textarea name="welcome_text" rows="2">{{ settings.welcome_text or '' }}</textarea></div>
+                    <div class="form-group"><label>رفع صورة إعلان/عرض (بانر) للصفحة الرئيسية</label><input type="file" name="banner_image_file" accept="image/*"></div>
+                    <div class="form-group"><label>أو رابط صورة الإعلان</label><input type="url" name="banner_image_url" value="{{ settings.banner_image_url or '' }}" placeholder="اتركه فارغاً لو عايز تشيل الإعلان"></div>
+                    <div class="form-group"><label>كود الخصم الحالي (10% لأول طلب لكل عميل)</label><input type="text" name="coupon_code" value="{{ settings.coupon_code or 'Anything 10' }}" required></div>
+                    <p style="color:#888; font-size:12px; margin-top:-5px;">لو غيّرت الكود، الكود القديم هيبقى مش شغال فوراً، والكود الجديد هيشتغل لكل العملاء من نفس اللحظة.</p>
+                    <button type="submit" class="btn-submit">حفظ محتوى الصفحة الرئيسية</button>
+                </form>
             </div>
         </div>
 
@@ -740,7 +782,7 @@ HTML_TEMPLATE = """
                     <tr><td><strong>طريقة إنشاء الحساب</strong></td><td>{{ 'Google' if customer.auth_provider == 'google' else 'تسجيل مباشر' }}</td></tr>
                     <tr><td><strong>نوع الحساب</strong></td><td>{{ 'أدمن' if customer.is_admin else 'عميل عادي' }}</td></tr>
                     <tr><td><strong>عدد مرات تسجيل الدخول</strong></td><td>{{ customer.login_count or 0 }}</td></tr>
-                    <tr><td><strong>استخدم كود الخصم (Anything 10)؟</strong></td><td>{{ 'نعم' if customer.used_coupon else 'لا' }}</td></tr>
+                    <tr><td><strong>استخدم كود الخصم؟</strong></td><td>{{ 'نعم' if customer.used_coupon else 'لا' }}</td></tr>
                 </tbody>
             </table>
             <p style="color:#888; font-size:12px; margin-top:10px;">🔒 كلمة المرور مشفّرة (hashed) ولا يمكن عرضها لأي طرف، حتى الأدمن، لأسباب أمان.</p>
@@ -1285,23 +1327,38 @@ def profile():
 @app.route("/add-to-cart", methods=["POST"])
 def add_to_cart():
     p_id = str(request.form.get("product_id"))
+    product = Product.query.get(int(p_id))
+    if not product:
+        flash("المنتج غير موجود.")
+        return redirect(request.referrer or url_for('home'))
+    if product.is_sold_out:
+        flash("عذراً، هذا المنتج نفذت كميته حالياً.")
+        return redirect(request.referrer or url_for('home'))
+
+    try:
+        qty = int(request.form.get("qty", 1))
+    except (TypeError, ValueError):
+        qty = 1
+    qty = max(1, min(qty, 99))  # حد أدنى 1 وحد أقصى 99 لكل طلبية إضافة
+
     cart = session.get('cart', {})
-    cart[p_id] = cart.get(p_id, 0) + 1
+    cart[p_id] = cart.get(p_id, 0) + qty
     session['cart'] = cart
-    flash("تمت الإضافة للسلة!")
+    flash(f"تمت إضافة {qty} من \"{product.name}\" للسلة!")
     return redirect(request.referrer or url_for('home'))
 
 @app.route("/apply-coupon", methods=["POST"])
 @login_required
 def apply_coupon():
     code = request.form.get("coupon_code", "").strip()
-    if code == "Anything 10":
+    active_coupon = get_settings().coupon_code or "Anything 10"
+    if code == active_coupon:
         if current_user.used_coupon:
             session.pop('applied_coupon', None)
-            flash("عذراً، لقد استخدمت كود الخصم (Anything 10) من قبل. الكود يُستخدم مرة واحدة فقط لكل عميل.")
+            flash(f"عذراً، لقد استخدمت كود الخصم ({active_coupon}) من قبل. الكود يُستخدم مرة واحدة فقط لكل عميل.")
         else:
-            session['applied_coupon'] = "Anything 10"
-            flash("تم تطبيق كود الخصم (Anything 10) بنجاح!")
+            session['applied_coupon'] = active_coupon
+            flash(f"تم تطبيق كود الخصم ({active_coupon}) بنجاح!")
     else:
         session.pop('applied_coupon', None)
         flash("كود الخصم غير صحيح.")
@@ -1320,7 +1377,7 @@ def view_cart():
     
     settings = get_settings()
     discount_amount = 0.0
-    if session.get('applied_coupon') == "Anything 10" and current_user.is_authenticated and not current_user.used_coupon:
+    if session.get('applied_coupon') == (settings.coupon_code or "Anything 10") and current_user.is_authenticated and not current_user.used_coupon:
         discount_amount = total_price * 0.10
     
     final_total = (total_price - discount_amount) + settings.shipping_fee
@@ -1348,7 +1405,7 @@ def checkout():
     settings = get_settings()
     discount_amount = 0.0
     coupon_used_this_order = False
-    if session.get('applied_coupon') == "Anything 10" and not current_user.used_coupon:
+    if session.get('applied_coupon') == (settings.coupon_code or "Anything 10") and not current_user.used_coupon:
         discount_amount = items_price * 0.10
         coupon_used_this_order = True
 
@@ -1611,30 +1668,65 @@ def admin_delete_product(prod_id):
     flash("تم حذف المنتج.")
     return redirect(url_for('admin_panel'))
 
+@app.route("/admin/toggle-sold-out/<int:prod_id>")
+@login_required
+def admin_toggle_sold_out(prod_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    prod = Product.query.get_or_404(prod_id)
+    prod.is_sold_out = not prod.is_sold_out
+    db.session.commit()
+    flash(f"تم تحديد \"{prod.name}\" كـ {'نفذت الكمية (Sold Out)' if prod.is_sold_out else 'متاح للبيع'}.")
+    return redirect(url_for('admin_panel'))
+
 @app.route("/admin/update-settings", methods=["POST"])
 @login_required
 def admin_update_settings():
     if not current_user.is_admin: return redirect(url_for('home'))
     settings = get_settings()
+
     if request.form.get("site_name", "").strip():
         settings.site_name = request.form.get("site_name").strip()
-    settings.header_color = request.form.get("header_color")
-    settings.primary_color = request.form.get("primary_color")
-    settings.price_color = request.form.get("price_color")
-    settings.bg_color = request.form.get("bg_color")
-    settings.text_color = request.form.get("text_color")
-    settings.icon_color = request.form.get("icon_color")
-    settings.card_bg_color = request.form.get("card_bg_color")
-    settings.shipping_fee = float(request.form.get("shipping_fee"))
-    
+
+    if "header_color" in request.form:
+        settings.header_color = request.form.get("header_color")
+    if "primary_color" in request.form:
+        settings.primary_color = request.form.get("primary_color")
+    if "price_color" in request.form:
+        settings.price_color = request.form.get("price_color")
+    if "bg_color" in request.form:
+        settings.bg_color = request.form.get("bg_color")
+    if "text_color" in request.form:
+        settings.text_color = request.form.get("text_color")
+    if "icon_color" in request.form:
+        settings.icon_color = request.form.get("icon_color")
+    if "card_bg_color" in request.form:
+        settings.card_bg_color = request.form.get("card_bg_color")
+    if request.form.get("shipping_fee"):
+        settings.shipping_fee = float(request.form.get("shipping_fee"))
+
     uploaded_logo = save_uploaded_file(request.files.get("logo_file"))
     if uploaded_logo:
         settings.logo_url = uploaded_logo
     elif request.form.get("logo_url"):
         settings.logo_url = request.form.get("logo_url")
-        
+
+    # --- محتوى الصفحة الرئيسية والعروض وكود الخصم ---
+    if "welcome_title" in request.form:
+        settings.welcome_title = request.form.get("welcome_title", "").strip() or settings.welcome_title
+    if "welcome_text" in request.form:
+        settings.welcome_text = request.form.get("welcome_text", "").strip() or settings.welcome_text
+
+    uploaded_banner = save_uploaded_file(request.files.get("banner_image_file"))
+    if uploaded_banner:
+        settings.banner_image_url = uploaded_banner
+    elif "banner_image_url" in request.form:
+        settings.banner_image_url = request.form.get("banner_image_url", "").strip() or None
+
+    if request.form.get("coupon_code", "").strip():
+        settings.coupon_code = request.form.get("coupon_code").strip()
+
     db.session.commit()
-    flash("تم تحديث إعدادات التصميم بالكامل بنجاح!")
+    flash("تم تحديث الإعدادات بنجاح!")
     return redirect(url_for('admin_panel'))
 
 @app.route("/login", methods=["GET", "POST"])
