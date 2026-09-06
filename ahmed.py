@@ -1149,6 +1149,25 @@ def get_settings():
         settings = SiteSettings()
         db.session.add(settings)
         db.session.commit()
+
+    # لو الأعمدة الجديدة اتضافت فاضية (NULL) في قاعدة بيانات قديمة، نملاها بقيم افتراضية
+    # عشان تظهر جاهزة للتعديل في لوحة الأدمن بدل ما تكون فاضية
+    changed = False
+    if not settings.site_name:
+        settings.site_name = "Anything Shop"
+        changed = True
+    if not settings.welcome_title:
+        settings.welcome_title = f"أهلاً بك في متجر {settings.site_name}!"
+        changed = True
+    if not settings.welcome_text:
+        settings.welcome_text = "استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب."
+        changed = True
+    if not settings.coupon_code:
+        settings.coupon_code = "Anything 10"
+        changed = True
+    if changed:
+        db.session.commit()
+
     return settings
 
 def get_categories_list():
