@@ -3,6 +3,7 @@ import json
 import hmac
 import hashlib
 import requests
+from collections import defaultdict
 from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, flash
@@ -19,7 +20,12 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "ahmed_shop_demo_secret_key_2026")
 
 # --- إعدادات قاعدة البيانات ---
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///shop_demo.db'
+# لو فيه DATABASE_URL (زي قاعدة بيانات Render PostgreSQL) بيستخدمها، وإلا بيرجع لملف SQLite محلي للتجربة فقط
+_database_url = os.environ.get("DATABASE_URL", "sqlite:///shop_demo.db")
+if _database_url.startswith("postgres://"):
+    # SQLAlchemy الحديث محتاج postgresql:// مش postgres:// اللي بيديها Render
+    _database_url = _database_url.replace("postgres://", "postgresql://", 1)
+app.config['SQLALCHEMY_DATABASE_URI'] = _database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -52,6 +58,8 @@ class User(UserMixin, db.Model):
     avatar_url = db.Column(db.String(500), nullable=True, default="https://via.placeholder.com/150")
     is_admin = db.Column(db.Boolean, default=False)
     auth_provider = db.Column(db.String(50), default='local')
+    used_coupon = db.Column(db.Boolean, default=False)
+    login_count = db.Column(db.Integer, default=0)
     orders = db.relationship('Order', backref='customer', lazy=True)
 
 class Product(db.Model):
@@ -77,6 +85,7 @@ class SiteSettings(db.Model):
     font_size = db.Column(db.Integer, default=14)
     shipping_fee = db.Column(db.Float, default=50.0)
     logo_url = db.Column(db.String(500), nullable=True)
+    total_visits = db.Column(db.Integer, default=0)
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -93,6 +102,13 @@ class Order(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
     paymob_order_id = db.Column(db.String(100), nullable=True)
+
+    @property
+    def items_list(self):
+        try:
+            return json.loads(self.items_json)
+        except Exception:
+            return []
 
 class SupportMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -290,7 +306,7 @@ HTML_TEMPLATE = """
         <div class="welcome-banner">
             <div>
                 <h3>أهلاً بك في متجر Anything Shop التجاري المتكامل!</h3>
-                <p>استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب خصم 10% باستخدام كود الخصم (أي حاجة شوب).</p>
+                <p>استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب خصم 10% باستخدام كود الخصم (Anything 10).</p>
             </div>
         </div>
 
@@ -376,10 +392,10 @@ HTML_TEMPLATE = """
             
             <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
                 <form action="/apply-coupon" method="POST" style="display:flex; gap:10px; align-items:center;">
-                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم (مثال: أي حاجة شوب)" value="{{ session.get('applied_coupon', '') }}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
+                    <input type="text" name="coupon_code" placeholder="أدخل كود الخصم (مثال: Anything 10)" value="{{ session.get('applied_coupon', '') }}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
                     <button type="submit" style="background:#232f3e; color:#fff; border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">تطبيق الكود</button>
                 </form>
-                {% if session.get('applied_coupon') == 'أي حاجة شوب' %}
+                {% if session.get('applied_coupon') == 'Anything 10' %}
                     <p style="color: green; margin-top: 8px; font-weight: bold; font-size: 13px;">✅ تم تطبيق خصم العرض الأول (10%) بنجاح!</p>
                 {% endif %}
             </div>
@@ -447,6 +463,76 @@ HTML_TEMPLATE = """
         <h2>⚙️ لوحة تحكم الأدمن</h2>
 
         <div class="admin-section-box">
+            <div class="admin-section-header" onclick="toggleSection('sec-stats')">
+                <span>📊 إحصائيات الموقع</span>
+                <span>▼</span>
+            </div>
+            <div id="sec-stats" class="admin-section-content">
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom:20px;">
+                    <div style="background:#f1f2f6; border-radius:8px; padding:18px; text-align:center;">
+                        <div style="font-size:28px; font-weight:bold; color: var(--primary-color);">{{ total_visits }}</div>
+                        <div style="font-size:13px; color:#555; margin-top:5px;">إجمالي عدد زيارات الموقع (كل الزوار)</div>
+                    </div>
+                    <div style="background:#f1f2f6; border-radius:8px; padding:18px; text-align:center;">
+                        <div style="font-size:28px; font-weight:bold; color: var(--primary-color);">{{ total_registered_users }}</div>
+                        <div style="font-size:13px; color:#555; margin-top:5px;">إجمالي عدد الحسابات المسجلة</div>
+                    </div>
+                    <div style="background:#f1f2f6; border-radius:8px; padding:18px; text-align:center;">
+                        <div style="font-size:28px; font-weight:bold; color: var(--primary-color);">{{ total_logins }}</div>
+                        <div style="font-size:13px; color:#555; margin-top:5px;">إجمالي عدد مرات تسجيل الدخول</div>
+                    </div>
+                </div>
+
+                <h4 style="margin-bottom:10px;">📦 إجمالي الكمية المطلوبة لكل منتج (من كل الأوردرات)</h4>
+                {% if product_totals_sorted %}
+                <table class="admin-table">
+                    <thead><tr><th>المنتج</th><th>إجمالي العدد المطلوب</th></tr></thead>
+                    <tbody>
+                        {% for name, qty in product_totals_sorted %}
+                        <tr><td>{{ name }}</td><td>{{ qty }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p style="color:#666;">لا يوجد طلبات مسجلة حتى الآن.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="admin-section-box">
+            <div class="admin-section-header" onclick="toggleSection('sec-customers')">
+                <span>👥 كل الحسابات المسجلة (إجمالي: {{ total_registered_users }})</span>
+                <span>▼</span>
+            </div>
+            <div id="sec-customers" class="admin-section-content">
+                <table class="admin-table">
+                    <thead><tr><th>#</th><th>الاسم</th><th>البريد الإلكتروني</th><th>الهاتف</th><th>عدد مرات الدخول</th><th>نوع الحساب</th><th>إجراء</th></tr></thead>
+                    <tbody>
+                        {% for u in paged_customers %}
+                        <tr>
+                            <td>{{ u.id }}</td>
+                            <td>{{ u.first_name }} {{ u.last_name }}</td>
+                            <td>{{ u.email }}</td>
+                            <td>{{ u.phone or '-' }}</td>
+                            <td>{{ u.login_count or 0 }}</td>
+                            <td>{{ 'أدمن' if u.is_admin else 'عميل' }}</td>
+                            <td><a href="/admin/customer/{{ u.id }}" class="btn-edit">عرض البروفايل</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% if total_customer_pages > 1 %}
+                <div class="pagination-box">
+                    {% for p in range(1, total_customer_pages + 1) %}
+                        <a href="/admin?customer_page={{ p }}" class="{% if customer_page == p %}active{% endif %}">{{ p }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+
+        <div class="admin-section-box">
             <div class="admin-section-header" onclick="toggleSection('sec-chat')">
                 <span>💬 المحادثات الحية والدعم الفني (للعملاء المسجلين فقط)</span>
                 <span>▼</span>
@@ -497,13 +583,20 @@ HTML_TEMPLATE = """
             </div>
             <div id="sec-orders" class="admin-section-content">
                 <table class="admin-table">
-                    <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>طريقة الدفع</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
+                    <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>المنتجات المطلوبة</th><th>طريقة الدفع</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
                     <tbody>
                         {% for ord in paged_orders %}
                         <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
                             <td>#{{ ord.id }}</td>
                             <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
                             <td>{{ ord.phone }}</td>
+                            <td>
+                                <ul style="margin:0; padding-right:16px; list-style:disc;">
+                                {% for it in ord.items_list %}
+                                    <li>{{ it.name }} × {{ it.qty }}</li>
+                                {% endfor %}
+                                </ul>
+                            </td>
                             <td><span style="background: #e2e8f0; padding: 3px 6px; border-radius: 4px; font-weight: bold;">{{ ord.payment_method }}</span></td>
                             <td>{{ ord.address }}</td>
                             <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
@@ -513,6 +606,13 @@ HTML_TEMPLATE = """
                         {% endfor %}
                     </tbody>
                 </table>
+                {% if total_order_pages > 1 %}
+                <div class="pagination-box">
+                    {% for p in range(1, total_order_pages + 1) %}
+                        <a href="/admin?order_page={{ p }}{% if active_session %}&session={{ active_session }}&chat_page={{ chat_page }}{% endif %}" class="{% if order_page == p %}active{% endif %}">{{ p }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
         </div>
 
@@ -609,6 +709,46 @@ HTML_TEMPLATE = """
                     <button type="submit" class="btn-submit">حفظ كافة تعديلات التصميم والألوان</button>
                 </form>
             </div>
+        </div>
+
+    {% elif page == 'customer_profile' %}
+        <div class="admin-card" style="max-width:650px; margin:auto;">
+            <h2>👤 بروفايل العميل #{{ customer.id }}</h2>
+            <table class="admin-table">
+                <tbody>
+                    <tr><td><strong>الاسم الكامل</strong></td><td>{{ customer.first_name }} {{ customer.last_name }}</td></tr>
+                    <tr><td><strong>البريد الإلكتروني</strong></td><td>{{ customer.email }}</td></tr>
+                    <tr><td><strong>رقم الهاتف</strong></td><td>{{ customer.phone or '-' }}</td></tr>
+                    <tr><td><strong>العنوان</strong></td><td>{{ customer.address or '-' }}</td></tr>
+                    <tr><td><strong>تاريخ الميلاد</strong></td><td>{{ customer.birth_date or '-' }}</td></tr>
+                    <tr><td><strong>طريقة إنشاء الحساب</strong></td><td>{{ 'Google' if customer.auth_provider == 'google' else 'تسجيل مباشر' }}</td></tr>
+                    <tr><td><strong>نوع الحساب</strong></td><td>{{ 'أدمن' if customer.is_admin else 'عميل عادي' }}</td></tr>
+                    <tr><td><strong>عدد مرات تسجيل الدخول</strong></td><td>{{ customer.login_count or 0 }}</td></tr>
+                    <tr><td><strong>استخدم كود الخصم (Anything 10)؟</strong></td><td>{{ 'نعم' if customer.used_coupon else 'لا' }}</td></tr>
+                </tbody>
+            </table>
+            <p style="color:#888; font-size:12px; margin-top:10px;">🔒 كلمة المرور مشفّرة (hashed) ولا يمكن عرضها لأي طرف، حتى الأدمن، لأسباب أمان.</p>
+
+            <h3 style="margin-top:25px;">📦 طلبات هذا العميل ({{ customer_orders|length }})</h3>
+            {% if customer_orders %}
+                {% for order in customer_orders %}
+                    <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
+                        <h4>طلب رقم #{{ order.id }} - {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</h4>
+                        <p><strong>طريقة الدفع:</strong> {{ order.payment_method }}</p>
+                        <p><strong>حالة الدفع:</strong> {{ order.payment_status }}</p>
+                        <ul style="margin:0; padding-right:16px;">
+                            {% for it in order.items_list %}
+                                <li>{{ it.name }} × {{ it.qty }}</li>
+                            {% endfor %}
+                        </ul>
+                        <h4 style="color: var(--price-color); margin-top:8px;">الإجمالي: {{ "%.2f"|format(order.total_price) }} ج.م</h4>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p>لا يوجد طلبات لهذا العميل حتى الآن.</p>
+            {% endif %}
+
+            <a href="/admin" class="nav-btn" style="display:inline-block; margin-top:10px;">⬅ رجوع للوحة الأدمن</a>
         </div>
 
     {% elif page == 'edit_product' %}
@@ -963,6 +1103,22 @@ def get_categories_list():
         cats = Category.query.all()
     return [c.name for c in cats]
 
+# --- عداد زيارات الموقع (بيحسب كل زيارة فعلية لصفحة، بصرف النظر لو المستخدم مسجل دخول أو لأ) ---
+@app.before_request
+def track_site_visits():
+    if request.method != "GET":
+        return
+    if request.path.startswith('/static') or request.path.startswith('/api') or request.path.startswith('/admin'):
+        return
+    if request.path in ('/payment/webhook',):
+        return
+    try:
+        settings = get_settings()
+        settings.total_visits = (settings.total_visits or 0) + 1
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
 # --- المسارات الأساسية ---
 @app.route("/")
 def home():
@@ -1041,7 +1197,10 @@ def google_auth():
         )
         db.session.add(user)
         db.session.commit()
-    
+
+    user.login_count = (user.login_count or 0) + 1
+    db.session.commit()
+
     login_user(user)
     return redirect(url_for('home'))
 
@@ -1086,7 +1245,8 @@ def register():
         new_user = User(
             first_name=f_name, last_name=l_name, email=email,
             password_hash=generate_password_hash(password, method='scrypt'),
-            phone=request.form.get("phone"), address=request.form.get("address"), birth_date=request.form.get("birth_date")
+            phone=request.form.get("phone"), address=request.form.get("address"), birth_date=request.form.get("birth_date"),
+            login_count=1
         )
         db.session.add(new_user)
         db.session.commit()
@@ -1115,15 +1275,21 @@ def add_to_cart():
     return redirect(request.referrer or url_for('home'))
 
 @app.route("/apply-coupon", methods=["POST"])
+@login_required
 def apply_coupon():
     code = request.form.get("coupon_code", "").strip()
-    if code == "أي حاجة شوب":
-        session['applied_coupon'] = "أي حاجة شوب"
-        flash("تم تطبيق كود الخصم (أي حاجة شوب) بنجاح!")
+    if code == "Anything 10":
+        if current_user.used_coupon:
+            session.pop('applied_coupon', None)
+            flash("عذراً، لقد استخدمت كود الخصم (Anything 10) من قبل. الكود يُستخدم مرة واحدة فقط لكل عميل.")
+        else:
+            session['applied_coupon'] = "Anything 10"
+            flash("تم تطبيق كود الخصم (Anything 10) بنجاح!")
     else:
         session.pop('applied_coupon', None)
         flash("كود الخصم غير صحيح.")
     return redirect(url_for('view_cart'))
+
 
 @app.route("/cart")
 def view_cart():
@@ -1137,7 +1303,7 @@ def view_cart():
     
     settings = get_settings()
     discount_amount = 0.0
-    if session.get('applied_coupon') == "أي حاجة شوب":
+    if session.get('applied_coupon') == "Anything 10" and current_user.is_authenticated and not current_user.used_coupon:
         discount_amount = total_price * 0.10
     
     final_total = (total_price - discount_amount) + settings.shipping_fee
@@ -1164,8 +1330,10 @@ def checkout():
             
     settings = get_settings()
     discount_amount = 0.0
-    if session.get('applied_coupon') == "أي حاجة شوب":
+    coupon_used_this_order = False
+    if session.get('applied_coupon') == "Anything 10" and not current_user.used_coupon:
         discount_amount = items_price * 0.10
+        coupon_used_this_order = True
 
     total_price = (items_price - discount_amount) + settings.shipping_fee
     if total_price < 0: total_price = 0.0
@@ -1180,6 +1348,10 @@ def checkout():
         total_price=total_price, items_json=json.dumps(order_items)
     )
     db.session.add(new_order)
+
+    if coupon_used_this_order:
+        current_user.used_coupon = True
+
     db.session.commit()
 
     # الكارت والكوبون بيتفضّوا سواء دفع كاش أو كارت، عشان الأوردر اتسجل بالفعل
@@ -1294,11 +1466,42 @@ def admin_panel():
     active_session = request.args.get("session")
     if not active_session and paged_chats: active_session = paged_chats[0]["session_id"]
 
+    total_registered_users = User.query.count()
+    total_logins = db.session.query(db.func.coalesce(db.func.sum(User.login_count), 0)).scalar()
+    total_visits = get_settings().total_visits or 0
+
+    product_totals = defaultdict(int)
+    for o in Order.query.all():
+        for it in o.items_list:
+            product_totals[it.get("name", "غير معروف")] += it.get("qty", 0)
+    product_totals_sorted = sorted(product_totals.items(), key=lambda x: -x[1])
+
+    customer_page = int(request.args.get('customer_page', 1))
+    customers_per_page = 10
+    all_customers_query = User.query.order_by(User.id.asc())
+    total_customers_count = all_customers_query.count()
+    total_customer_pages = (total_customers_count + customers_per_page - 1) // customers_per_page
+    paged_customers = all_customers_query.offset((customer_page - 1) * customers_per_page).limit(customers_per_page).all()
+
     return render_template_string(
         HTML_TEMPLATE, page='admin', 
         paged_orders=paged_orders, total_orders_count=total_orders_count, total_order_pages=total_order_pages, order_page=order_page,
         paged_chats=paged_chats, total_chat_pages=total_chat_pages, chat_page=chat_page, active_session=active_session,
         custom_categories=Category.query.all(), all_products=Product.query.all(),
+        total_registered_users=total_registered_users, total_logins=total_logins, total_visits=total_visits,
+        paged_customers=paged_customers, total_customer_pages=total_customer_pages, customer_page=customer_page,
+        product_totals_sorted=product_totals_sorted,
+        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Admin", settings=get_settings()
+    )
+
+@app.route("/admin/customer/<int:user_id>")
+@login_required
+def admin_view_customer(user_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    customer = User.query.get_or_404(user_id)
+    customer_orders = Order.query.filter_by(user_id=customer.id).order_by(Order.created_at.desc()).all()
+    return render_template_string(
+        HTML_TEMPLATE, page='customer_profile', customer=customer, customer_orders=customer_orders,
         cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Admin", settings=get_settings()
     )
 
@@ -1420,6 +1623,8 @@ def login():
     if request.method == "POST":
         user = User.query.filter_by(email=request.form.get("email")).first()
         if user and user.password_hash and check_password_hash(user.password_hash, request.form.get("password")):
+            user.login_count = (user.login_count or 0) + 1
+            db.session.commit()
             login_user(user)
             return redirect(url_for('admin_panel' if user.is_admin else 'home'))
         flash("خطأ في البيانات.")
