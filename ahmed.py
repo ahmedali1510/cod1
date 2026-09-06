@@ -69,6 +69,7 @@ class Product(db.Model):
     category = db.Column(db.String(100), nullable=False)
     image = db.Column(db.String(500), nullable=False)
     is_sold_out = db.Column(db.Boolean, default=False)
+    description = db.Column(db.Text, nullable=True)
 
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -92,6 +93,7 @@ class SiteSettings(db.Model):
     welcome_text = db.Column(db.Text, default='استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب. استخدم كود الخصم (Anything 10) للحصول على خصم 10% على أول طلب.')
     banner_image_url = db.Column(db.String(500), nullable=True)
     coupon_code = db.Column(db.String(100), default='Anything 10')
+    usd_exchange_rate = db.Column(db.Float, default=50.0)
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -108,6 +110,9 @@ class Order(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_read = db.Column(db.Boolean, default=False)
     paymob_order_id = db.Column(db.String(100), nullable=True)
+    order_code = db.Column(db.String(100), nullable=True)
+    admin_notes = db.Column(db.Text, nullable=True)
+    paypal_order_id = db.Column(db.String(100), nullable=True)
 
     @property
     def items_list(self):
@@ -278,7 +283,9 @@ HTML_TEMPLATE = """
             {% if current_user.is_admin %}
                 <a href="/admin" class="nav-btn admin-btn">
                     ⚙️ لوحة الأدمن
-                    <span id="global-admin-badge" class="badge-notification" style="display:none;">0</span>
+                    {% if admin_notif_count and admin_notif_count > 0 %}
+                    <span id="global-admin-badge" class="badge-notification">{{ admin_notif_count }}</span>
+                    {% endif %}
                 </a>
             {% endif %}
             <a href="/profile" class="nav-btn" style="background:#37475a;">👤 حسابي</a>
@@ -326,8 +333,10 @@ HTML_TEMPLATE = """
             <div style="position:absolute; top:8px; left:8px; background:#dc3545; color:#fff; font-size:11px; font-weight:bold; padding:3px 8px; border-radius:4px; z-index:2;">نفذت الكمية</div>
             {% endif %}
             <div>
-                <img src="{{ product.image }}" alt="{{ product.name }}">
-                <div class="card-title">{{ product.name }}</div>
+                <a href="/product/{{ product.id }}" style="text-decoration:none; color:inherit;">
+                    <img src="{{ product.image }}" alt="{{ product.name }}">
+                    <div class="card-title">{{ product.name }}</div>
+                </a>
                 <small style="color:#565959;">{{ product.category }}</small>
             </div>
             <div>
@@ -407,16 +416,46 @@ HTML_TEMPLATE = """
                 <div class="form-group"><label>تاريخ الميلاد</label><input type="date" name="birth_date" value="{{ current_user.birth_date or '' }}"></div>
                 <button type="submit" class="btn-submit">حفظ وتحديث البيانات</button>
             </form>
+
+            {% if current_user.auth_provider != 'google' %}
+            <hr style="margin:20px 0; border:none; border-top:1px solid #ddd;">
+            <h3>🔒 تغيير كلمة المرور</h3>
+            <form action="/profile/change-password" method="POST">
+                <div class="form-group"><label>كلمة المرور الحالية</label><input type="password" name="current_password" required></div>
+                <div class="form-group"><label>كلمة المرور الجديدة</label><input type="password" name="new_password" required minlength="6"></div>
+                <div class="form-group"><label>تأكيد كلمة المرور الجديدة</label><input type="password" name="confirm_password" required minlength="6"></div>
+                <button type="submit" class="btn-submit">تحديث كلمة المرور</button>
+            </form>
+            {% else %}
+            <p style="color:#888; font-size:12px; margin-top:15px;">حسابك مسجل عن طريق Google، فمفيش كلمة مرور لتغييرها هنا.</p>
+            {% endif %}
         </div>
 
     {% elif page == 'cart' %}
         <h2>سلة التسوق</h2>
         {% if cart_items %}
             <table class="cart-table">
-                <thead><tr><th>المنتج</th><th>السعر</th><th>الكمية</th><th>الإجمالي</th></tr></thead>
+                <thead><tr><th>المنتج</th><th>السعر</th><th>الكمية</th><th>الإجمالي</th><th>إجراء</th></tr></thead>
                 <tbody>
                     {% for item in cart_items %}
-                    <tr><td>{{ item.name }}</td><td>{{ item.price }} ج.م</td><td>{{ item.qty }}</td><td>{{ "%.2f"|format(item.price * item.qty) }} ج.م</td></tr>
+                    <tr>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.price }} ج.م</td>
+                        <td>
+                            <form action="/cart/update-qty" method="POST" style="display:flex; gap:5px; align-items:center;">
+                                <input type="hidden" name="product_id" value="{{ item.id }}">
+                                <input type="number" name="qty" value="{{ item.qty }}" min="1" max="99" style="width:55px; padding:5px; border:1px solid #ccc; border-radius:4px; text-align:center;">
+                                <button type="submit" style="background:#232f3e; color:#fff; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;">تحديث</button>
+                            </form>
+                        </td>
+                        <td>{{ "%.2f"|format(item.price * item.qty) }} ج.م</td>
+                        <td>
+                            <form action="/cart/remove-item" method="POST">
+                                <input type="hidden" name="product_id" value="{{ item.id }}">
+                                <button type="submit" class="btn-danger" onclick="return confirm('حذف المنتج من السلة؟')">حذف</button>
+                            </form>
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -450,6 +489,7 @@ HTML_TEMPLATE = """
                         <select name="payment_method" required>
                             <option value="cod">الدفع عند الاستلام (كاش)</option>
                             <option value="card">بطاقة ائتمان (فيزا/ماستركارد) عبر Paymob</option>
+                            <option value="paypal">الدفع عبر PayPal (بالدولار الأمريكي)</option>
                         </select>
                     </div>
                     <button type="submit" class="btn-submit">تأكيد ومتابعة الطلب</button>
@@ -457,6 +497,65 @@ HTML_TEMPLATE = """
             </div>
         {% else %}
             <p>سلة التسوق فارغة حالياً.</p>
+        {% endif %}
+
+    {% elif page == 'product_detail' %}
+        <div style="display:flex; gap:25px; flex-wrap:wrap; background:var(--card-bg); padding:20px; border-radius:8px; border:1px solid #ddd;">
+            <div style="flex:1; min-width:280px; position:relative;">
+                {% if product.is_sold_out %}
+                <div style="position:absolute; top:8px; left:8px; background:#dc3545; color:#fff; font-size:12px; font-weight:bold; padding:4px 10px; border-radius:4px;">نفذت الكمية</div>
+                {% endif %}
+                <img src="{{ product.image }}" alt="{{ product.name }}" style="width:100%; max-height:400px; object-fit:cover; border-radius:8px;">
+            </div>
+            <div style="flex:1; min-width:280px;">
+                <h2>{{ product.name }}</h2>
+                <p style="color:#565959;">القسم: {{ product.category }}</p>
+                <h3 style="color: var(--price-color); font-size:26px;">{{ product.price }} ج.م</h3>
+                {% if product.description %}
+                    <p style="line-height:1.8; margin:15px 0;">{{ product.description }}</p>
+                {% endif %}
+                {% if product.is_sold_out %}
+                    <button type="button" class="btn-add" disabled style="background:#ccc; border-color:#bbb; cursor:not-allowed; max-width:250px;">نفذت الكمية</button>
+                {% else %}
+                <form action="/add-to-cart" method="POST" style="display:flex; gap:8px; align-items:center; max-width:300px; margin-top:15px;">
+                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                    <input type="number" name="qty" value="1" min="1" max="99" style="width:70px; padding:9px; border:1px solid #ccc; border-radius:4px; text-align:center;">
+                    <button type="submit" class="btn-add" style="flex:1;">أضف إلى السلة</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if related_products %}
+        <h3 style="margin:30px 0 15px;">🛍️ منتجات تانية ممكن تعجبك</h3>
+        {% macro _rp_card(product) %}
+        <div class="card" style="{% if product.is_sold_out %}opacity:0.6;{% endif %}">
+            <div>
+                <a href="/product/{{ product.id }}" style="text-decoration:none; color:inherit;">
+                    <img src="{{ product.image }}" alt="{{ product.name }}">
+                    <div class="card-title">{{ product.name }}</div>
+                </a>
+                <small style="color:#565959;">{{ product.category }}</small>
+            </div>
+            <div>
+                <div class="card-price">{{ product.price }} ج.م</div>
+                {% if not product.is_sold_out %}
+                <form action="/add-to-cart" method="POST">
+                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                    <input type="hidden" name="qty" value="1">
+                    <button type="submit" class="btn-add">أضف إلى السلة</button>
+                </form>
+                {% else %}
+                <button type="button" class="btn-add" disabled style="background:#ccc; cursor:not-allowed;">نفذت الكمية</button>
+                {% endif %}
+            </div>
+        </div>
+        {% endmacro %}
+        <div class="products-grid">
+            {% for rp in related_products %}
+                {{ _rp_card(rp) }}
+            {% endfor %}
+        </div>
         {% endif %}
 
     {% elif page == 'payment_result' %}
@@ -479,6 +578,7 @@ HTML_TEMPLATE = """
         {% for order in orders %}
             <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
                 <h4>طلب رقم #{{ order.id }} - {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</h4>
+                {% if order.order_code %}<p><strong>كود الأوردر:</strong> {{ order.order_code }}</p>{% endif %}
                 <p><strong>طريقة الدفع:</strong> {{ order.payment_method }}</p>
                 <p><strong>حالة الدفع:</strong> {{ order.payment_status }}</p>
                 <p><strong>رقم الهاتف:</strong> {{ order.phone }}</p>
@@ -627,11 +727,12 @@ HTML_TEMPLATE = """
             </div>
             <div id="sec-orders" class="admin-section-content">
                 <table class="admin-table">
-                    <thead><tr><th>رقم الطلب</th><th>العميل</th><th>الهاتف</th><th>المنتجات المطلوبة</th><th>طريقة الدفع</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
+                    <thead><tr><th>رقم الطلب</th><th>الكود</th><th>العميل</th><th>الهاتف</th><th>المنتجات المطلوبة</th><th>طريقة الدفع</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
                     <tbody>
                         {% for ord in paged_orders %}
                         <tr {% if not ord.is_read %}style="background-color: #fff9db;"{% endif %}>
                             <td>#{{ ord.id }}</td>
+                            <td>{{ ord.order_code or '-' }}</td>
                             <td>{{ ord.customer.first_name }} {{ ord.customer.last_name }}</td>
                             <td>{{ ord.phone }}</td>
                             <td>
@@ -645,7 +746,10 @@ HTML_TEMPLATE = """
                             <td>{{ ord.address }}</td>
                             <td>{{ "%.2f"|format(ord.total_price) }} ج.م</td>
                             <td>{{ ord.payment_status }}</td>
-                            <td><a href="/admin/mark-order-read/{{ ord.id }}" style="color:#0084ff; text-decoration:none;">تحديد كمقروء</a></td>
+                            <td>
+                                <a href="/admin/order/{{ ord.id }}" class="btn-edit">تفاصيل / تعديل</a>
+                                {% if not ord.is_read %}<a href="/admin/mark-order-read/{{ ord.id }}" style="color:#0084ff; text-decoration:none; display:block; margin-top:4px; font-size:11px;">تحديد كمقروء</a>{% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -698,6 +802,7 @@ HTML_TEMPLATE = """
                             {% for cat in custom_categories %}<option value="{{ cat.name }}">{{ cat.name }}</option>{% endfor %}
                         </select>
                     </div>
+                    <div class="form-group"><label>وصف المنتج (هيظهر في صفحة تفاصيل المنتج)</label><textarea name="description" rows="3" placeholder="اكتب وصف المنتج هنا..."></textarea></div>
                     <div class="form-group"><label>رفع صورة المنتج</label><input type="file" name="image_file" accept="image/*"></div>
                     <div class="form-group"><label>أو رابط صورة خارجي</label><input type="url" name="image_url"></div>
                     <button type="submit" class="btn-submit">حفظ المنتج</button>
@@ -750,6 +855,8 @@ HTML_TEMPLATE = """
                     <div class="form-group"><label>أو رابط صورة الإعلان</label><input type="url" name="banner_image_url" value="{{ settings.banner_image_url or '' }}" placeholder="اتركه فارغاً لو عايز تشيل الإعلان"></div>
                     <div class="form-group"><label>كود الخصم الحالي (10% لأول طلب لكل عميل)</label><input type="text" name="coupon_code" value="{{ settings.coupon_code or 'Anything 10' }}" required></div>
                     <p style="color:#888; font-size:12px; margin-top:-5px;">لو غيّرت الكود، الكود القديم هيبقى مش شغال فوراً، والكود الجديد هيشتغل لكل العملاء من نفس اللحظة.</p>
+                    <div class="form-group"><label>سعر صرف الدولار (لتحويل مبلغ الأوردر لدولار عند الدفع بـ PayPal)</label><input type="number" step="0.01" name="usd_exchange_rate" value="{{ settings.usd_exchange_rate or 50 }}" required></div>
+                    <p style="color:#888; font-size:12px; margin-top:-5px;">PayPal مش بيدعم الجنيه المصري مباشرة، فالمبلغ بيتحول لدولار بالسعر ده وقت الدفع. حدّثه من وقت للتاني حسب سعر السوق.</p>
                     <button type="submit" class="btn-submit">حفظ محتوى الصفحة الرئيسية</button>
                 </form>
             </div>
@@ -780,6 +887,35 @@ HTML_TEMPLATE = """
                     <button type="submit" class="btn-submit">حفظ كافة تعديلات التصميم والألوان</button>
                 </form>
             </div>
+        </div>
+
+    {% elif page == 'order_detail' %}
+        <div class="admin-card" style="max-width:650px; margin:auto;">
+            <h2>📦 تفاصيل الأوردر #{{ order.id }}</h2>
+            <table class="admin-table">
+                <tbody>
+                    <tr><td><strong>العميل</strong></td><td>{{ order.customer.first_name }} {{ order.customer.last_name }} — <a href="/admin/customer/{{ order.customer.id }}" style="color:#0084ff;">عرض البروفايل</a></td></tr>
+                    <tr><td><strong>التاريخ</strong></td><td>{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</td></tr>
+                    <tr><td><strong>الهاتف</strong></td><td>{{ order.phone }}</td></tr>
+                    <tr><td><strong>العنوان</strong></td><td>{{ order.address }}</td></tr>
+                    <tr><td><strong>طريقة الدفع</strong></td><td>{{ order.payment_method }}</td></tr>
+                    <tr><td><strong>حالة الدفع</strong></td><td>{{ order.payment_status }}</td></tr>
+                    <tr><td><strong>الإجمالي</strong></td><td>{{ "%.2f"|format(order.total_price) }} ج.م</td></tr>
+                </tbody>
+            </table>
+            <h4>المنتجات المطلوبة</h4>
+            <ul>
+                {% for it in order.items_list %}
+                    <li>{{ it.name }} × {{ it.qty }}</li>
+                {% endfor %}
+            </ul>
+
+            <form action="/admin/order/{{ order.id }}" method="POST" style="margin-top:20px;">
+                <div class="form-group"><label>كود الأوردر (تحطه إنت براحتك، مثلاً لربط الأوردر بنظام شحن خارجي)</label><input type="text" name="order_code" value="{{ order.order_code or '' }}" placeholder="مثال: ORD-1024"></div>
+                <div class="form-group"><label>ملاحظات الأدمن الداخلية على الأوردر</label><textarea name="admin_notes" rows="4" placeholder="أي تفاصيل أو وصف تحب تسجله على الأوردر ده...">{{ order.admin_notes or '' }}</textarea></div>
+                <button type="submit" class="btn-submit">حفظ كود الأوردر والملاحظات</button>
+            </form>
+            <a href="/admin" class="nav-btn" style="display:inline-block; margin-top:10px;">⬅ رجوع للوحة الأدمن</a>
         </div>
 
     {% elif page == 'customer_profile' %}
@@ -835,6 +971,7 @@ HTML_TEMPLATE = """
                         {% endfor %}
                     </select>
                 </div>
+                <div class="form-group"><label>وصف المنتج</label><textarea name="description" rows="3">{{ edit_prod.description or '' }}</textarea></div>
                 <div class="form-group"><label>رفع صورة جديدة</label><input type="file" name="image_file" accept="image/*"></div>
                 <div class="form-group"><label>رابط الصورة الحالي</label><input type="url" name="image_url" value="{{ edit_prod.image }}"></div>
                 <button type="submit" class="btn-submit">حفظ التعديلات</button>
@@ -855,7 +992,12 @@ HTML_TEMPLATE = """
 </div>
 
 {% if current_user.is_authenticated %}
-<div id="support-chat-btn" class="chat-widget-btn">💬</div>
+<div id="support-chat-btn" class="chat-widget-btn" style="position:fixed;">
+    💬
+    {% if customer_notif_count and customer_notif_count > 0 %}
+    <span class="badge-notification">{{ customer_notif_count }}</span>
+    {% endif %}
+</div>
 <div id="support-chat-window" class="chat-popup">
     <div class="chat-header"><span>الدعم الفني المباشر</span><button id="close-chat">✕</button></div>
     <div id="chat-messages" class="chat-messages-container"></div>
@@ -1138,20 +1280,142 @@ def verify_paymob_hmac(data, received_hmac):
     return hmac.compare_digest(calculated_hmac, received_hmac or "")
 
 
+# ============================================================
+# ===================  تكامل PayPal الحقيقي  ==================
+# ============================================================
+PAYPAL_CLIENT_ID = os.environ.get("PAYPAL_CLIENT_ID")
+PAYPAL_CLIENT_SECRET = os.environ.get("PAYPAL_CLIENT_SECRET")
+PAYPAL_MODE = os.environ.get("PAYPAL_MODE", "sandbox")  # "sandbox" للتجربة أو "live" للحساب الحقيقي
+PAYPAL_BASE_URL = "https://api-m.sandbox.paypal.com" if PAYPAL_MODE == "sandbox" else "https://api-m.paypal.com"
+
+
+class PaypalError(Exception):
+    pass
+
+
+def paypal_get_access_token():
+    if not (PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET):
+        raise PaypalError("إعدادات PayPal غير مكتملة (محتاج PAYPAL_CLIENT_ID و PAYPAL_CLIENT_SECRET في .env).")
+    try:
+        resp = requests.post(
+            f"{PAYPAL_BASE_URL}/v1/oauth2/token",
+            auth=(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET),
+            data={"grant_type": "client_credentials"},
+            timeout=15
+        )
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+    except PaypalError:
+        raise
+    except Exception as e:
+        raise PaypalError(f"فشل الحصول على توكن PayPal: {e}")
+
+
+def paypal_create_order(order, usd_amount):
+    """
+    بينشئ أوردر على PayPal ويرجع (paypal_order_id, رابط الموافقة اللي نوجه له العميل).
+    """
+    access_token = paypal_get_access_token()
+    payload = {
+        "intent": "CAPTURE",
+        "purchase_units": [{
+            "reference_id": str(order.id),
+            "amount": {"currency_code": "USD", "value": f"{usd_amount:.2f}"}
+        }],
+        "application_context": {
+            "return_url": url_for('paypal_return', _external=True),
+            "cancel_url": url_for('paypal_cancel', _external=True),
+            "brand_name": get_settings().site_name or "Anything Shop",
+            "user_action": "PAY_NOW"
+        }
+    }
+    try:
+        resp = requests.post(
+            f"{PAYPAL_BASE_URL}/v2/checkout/orders",
+            json=payload,
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            timeout=15
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        approve_link = next((l["href"] for l in data.get("links", []) if l.get("rel") == "approve"), None)
+        if not approve_link:
+            raise PaypalError("لم يتم العثور على رابط الموافقة من PayPal.")
+        return data["id"], approve_link
+    except PaypalError:
+        raise
+    except Exception as e:
+        raise PaypalError(f"فشل إنشاء الطلب على PayPal: {e}")
+
+
+def paypal_capture_order(paypal_order_id):
+    """بيأكد تحصيل المبلغ فعلياً بعد ما العميل يوافق على PayPal، ويرجع True/False."""
+    access_token = paypal_get_access_token()
+    try:
+        resp = requests.post(
+            f"{PAYPAL_BASE_URL}/v2/checkout/orders/{paypal_order_id}/capture",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            timeout=15
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("status") == "COMPLETED"
+    except PaypalError:
+        raise
+    except Exception as e:
+        raise PaypalError(f"فشل تأكيد تحصيل المبلغ من PayPal: {e}")
+
+
 # --- مساعد رفع الصور ---
 UPLOAD_FOLDER = 'static/uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET")
+
+
+def upload_to_cloudinary(file_storage):
+    """
+    بيرفع الصورة لـ Cloudinary عشان تفضل محفوظة دايماً (مش زي ملفات Render اللي بتتمسح).
+    لو المتغيرات مش متظبطة في .env، بيرجع None عشان الكود يرجع تلقائياً لطريقة الحفظ المحلية.
+    """
+    if not (CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET):
+        return None
+    try:
+        import time as _time
+        timestamp = str(int(_time.time()))
+        signature = hashlib.sha1(f"timestamp={timestamp}{CLOUDINARY_API_SECRET}".encode("utf-8")).hexdigest()
+        resp = requests.post(
+            f"https://api.cloudinary.com/v1_1/{CLOUDINARY_CLOUD_NAME}/image/upload",
+            files={"file": (file_storage.filename, file_storage.stream, file_storage.mimetype)},
+            data={"api_key": CLOUDINARY_API_KEY, "timestamp": timestamp, "signature": signature},
+            timeout=30
+        )
+        resp.raise_for_status()
+        return resp.json().get("secure_url")
+    except Exception as e:
+        print(f"[cloudinary] فشل رفع الصورة: {e}")
+        return None
+
+
 def save_uploaded_file(file_storage):
-    if file_storage and file_storage.filename != '':
-        if not os.path.exists(UPLOAD_FOLDER):
-            os.makedirs(UPLOAD_FOLDER)
-        filename = secure_filename(file_storage.filename)
-        unique_filename = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
-        filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
-        file_storage.save(filepath)
-        return f"/{filepath}"
-    return None
+    if not file_storage or file_storage.filename == '':
+        return None
+
+    # المحاولة الأولى: Cloudinary (تخزين دائم مايتمسحش)
+    cloud_url = upload_to_cloudinary(file_storage)
+    if cloud_url:
+        return cloud_url
+
+    # لو Cloudinary مش متظبط، نرجع للحفظ المحلي (ملحوظة: ده بيتمسح على Render عند كل Deploy)
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+    filename = secure_filename(file_storage.filename)
+    unique_filename = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
+    filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
+    file_storage.save(filepath)
+    return f"/{filepath}"
 
 def get_cart_count():
     return sum(session.get('cart', {}).values())
@@ -1177,6 +1441,9 @@ def get_settings():
         changed = True
     if not settings.welcome_text:
         settings.welcome_text = f"استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب. استخدم كود الخصم ({settings.coupon_code}) للحصول على خصم 10% على أول طلب."
+        changed = True
+    if not settings.usd_exchange_rate:
+        settings.usd_exchange_rate = 50.0
         changed = True
     if changed:
         db.session.commit()
@@ -1209,6 +1476,25 @@ def track_site_visits():
         db.session.commit()
     except Exception:
         db.session.rollback()
+
+# --- الإشعارات: عدد الحاجات الجديدة اللي محتاجة انتباه الأدمن أو العميل ---
+@app.context_processor
+def inject_notification_counts():
+    admin_notif_count = 0
+    customer_notif_count = 0
+    try:
+        if current_user.is_authenticated:
+            if current_user.is_admin:
+                unread_orders = Order.query.filter_by(is_read=False).count()
+                unread_chats = SupportMessage.query.filter_by(sender_type='client', is_read=False).count()
+                admin_notif_count = unread_orders + unread_chats
+            else:
+                customer_notif_count = SupportMessage.query.filter_by(
+                    session_id=f'user_session_{current_user.id}', sender_type='admin', is_read=False
+                ).count()
+    except Exception:
+        pass
+    return dict(admin_notif_count=admin_notif_count, customer_notif_count=customer_notif_count)
 
 # --- المسارات الأساسية ---
 @app.route("/")
@@ -1262,6 +1548,18 @@ def search():
         cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="", settings=get_settings()
     )
 
+@app.route("/product/<int:product_id>")
+def product_detail(product_id):
+    product = Product.query.get_or_404(product_id)
+    related_products = Product.query.filter(
+        Product.category == product.category, Product.id != product.id
+    ).order_by(db.func.random()).limit(6).all()
+
+    return render_template_string(
+        HTML_TEMPLATE, page='product_detail', product=product, related_products=related_products,
+        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat=product.category, settings=get_settings()
+    )
+
 # --- مسارات Google OAuth ---
 @app.route('/login/google')
 def google_login():
@@ -1313,7 +1611,7 @@ def api_chat_send():
     elif action == "admin_send" and current_user.is_admin:
         client_msg = SupportMessage.query.filter_by(session_id=session_id).first()
         u_id = client_msg.user_id if client_msg else current_user.id
-        db.session.add(SupportMessage(user_id=u_id, session_id=session_id, sender_type="admin", message=message, is_read=True))
+        db.session.add(SupportMessage(user_id=u_id, session_id=session_id, sender_type="admin", message=message, is_read=False))
         db.session.commit()
         return jsonify({"status": "success"})
     return jsonify({"status": "error"})
@@ -1329,6 +1627,10 @@ def api_chat_messages():
     # لو الأدمن هو اللي بيفتح المحادثة دي، نعتبر رسايل العميل "مقروءة" فوراً عشان تختفي العلامة الحمراء
     if current_user.is_admin:
         SupportMessage.query.filter_by(session_id=session_id, sender_type='client', is_read=False).update({SupportMessage.is_read: True})
+        db.session.commit()
+    elif session_id == f'user_session_{current_user.id}':
+        # العميل بيفتح شاته هو نفسه، يبقى رد الأدمن بقى مقروء
+        SupportMessage.query.filter_by(session_id=session_id, sender_type='admin', is_read=False).update({SupportMessage.is_read: True})
         db.session.commit()
 
     return jsonify({"status": "success", "messages": msgs_list})
@@ -1363,6 +1665,32 @@ def profile():
         flash("تم التحديث بنجاح!")
         return redirect(url_for('profile'))
     return render_template_string(HTML_TEMPLATE, page='profile', cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
+
+@app.route("/profile/change-password", methods=["POST"])
+@login_required
+def change_password():
+    if current_user.auth_provider == 'google' or not current_user.password_hash:
+        flash("حسابك مسجل عن طريق Google، مفيش كلمة مرور تتغير.")
+        return redirect(url_for('profile'))
+
+    current_password = request.form.get("current_password", "")
+    new_password = request.form.get("new_password", "")
+    confirm_password = request.form.get("confirm_password", "")
+
+    if not check_password_hash(current_user.password_hash, current_password):
+        flash("كلمة المرور الحالية غير صحيحة.")
+        return redirect(url_for('profile'))
+    if new_password != confirm_password:
+        flash("كلمة المرور الجديدة وتأكيدها غير متطابقين.")
+        return redirect(url_for('profile'))
+    if len(new_password) < 6:
+        flash("كلمة المرور الجديدة لازم تكون 6 حروف/أرقام على الأقل.")
+        return redirect(url_for('profile'))
+
+    current_user.password_hash = generate_password_hash(new_password, method='scrypt')
+    db.session.commit()
+    flash("تم تحديث كلمة المرور بنجاح!")
+    return redirect(url_for('profile'))
 
 @app.route("/add-to-cart", methods=["POST"])
 def add_to_cart():
@@ -1413,7 +1741,7 @@ def view_cart():
         product = Product.query.get(int(p_id_str))
         if product:
             total_price += product.price * qty
-            cart_items.append({"name": product.name, "price": product.price, "qty": qty})
+            cart_items.append({"id": product.id, "name": product.name, "price": product.price, "qty": qty})
     
     settings = get_settings()
     discount_amount = 0.0
@@ -1428,6 +1756,31 @@ def view_cart():
         discount_amount=discount_amount, final_total=final_total, 
         cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Cart", settings=settings
     )
+
+@app.route("/cart/update-qty", methods=["POST"])
+def update_cart_qty():
+    p_id = str(request.form.get("product_id"))
+    try:
+        qty = int(request.form.get("qty", 1))
+    except (TypeError, ValueError):
+        qty = 1
+    cart = session.get('cart', {})
+    if p_id in cart:
+        if qty <= 0:
+            cart.pop(p_id, None)
+        else:
+            cart[p_id] = min(qty, 99)
+        session['cart'] = cart
+    return redirect(url_for('view_cart'))
+
+@app.route("/cart/remove-item", methods=["POST"])
+def remove_cart_item():
+    p_id = str(request.form.get("product_id"))
+    cart = session.get('cart', {})
+    cart.pop(p_id, None)
+    session['cart'] = cart
+    flash("تم حذف المنتج من السلة.")
+    return redirect(url_for('view_cart'))
 
 @app.route("/checkout", methods=["POST"])
 @login_required
@@ -1456,7 +1809,7 @@ def checkout():
 
     new_order = Order(
         user_id=current_user.id, phone=request.form.get("phone"), address=request.form.get("address"), 
-        payment_method="card" if payment_method == "card" else "cod",
+        payment_method=payment_method if payment_method in ("card", "paypal") else "cod",
         payment_status='Pending',
         items_price=items_price, shipping_fee=settings.shipping_fee, discount_amount=discount_amount,
         total_price=total_price, items_json=json.dumps(order_items)
@@ -1482,9 +1835,55 @@ def checkout():
             flash(f"تعذر بدء عملية الدفع الإلكتروني: {e}")
             return redirect(url_for('my_orders'))
 
+    if payment_method == "paypal":
+        try:
+            usd_rate = settings.usd_exchange_rate or 50.0
+            usd_amount = round(total_price / usd_rate, 2)
+            paypal_order_id, approve_link = paypal_create_order(new_order, usd_amount)
+            new_order.paypal_order_id = paypal_order_id
+            db.session.commit()
+            return redirect(approve_link)
+        except PaypalError as e:
+            new_order.payment_status = "Failed"
+            db.session.commit()
+            flash(f"تعذر بدء عملية الدفع عبر PayPal: {e}")
+            return redirect(url_for('my_orders'))
+
     new_order.payment_status = "Cash on Delivery"
     db.session.commit()
     flash("تم تسجيل الطلب بنجاح!")
+    return redirect(url_for('my_orders'))
+
+
+@app.route("/payment/paypal/return")
+@login_required
+def paypal_return():
+    paypal_order_id = request.args.get("token")
+    order = Order.query.filter_by(paypal_order_id=paypal_order_id).first()
+    if not order:
+        flash("لم يتم العثور على الطلب.")
+        return redirect(url_for('my_orders'))
+    try:
+        success = paypal_capture_order(paypal_order_id)
+        order.payment_status = "Paid" if success else "Failed"
+    except PaypalError as e:
+        order.payment_status = "Failed"
+        flash(f"حصل خطأ أثناء تأكيد الدفع: {e}")
+    db.session.commit()
+    return render_template_string(
+        HTML_TEMPLATE, page='payment_result', order=order,
+        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="", settings=get_settings()
+    )
+
+@app.route("/payment/paypal/cancel")
+@login_required
+def paypal_cancel():
+    paypal_order_id = request.args.get("token")
+    order = Order.query.filter_by(paypal_order_id=paypal_order_id).first()
+    if order:
+        order.payment_status = "Failed"
+        db.session.commit()
+        flash("تم إلغاء عملية الدفع عبر PayPal.")
     return redirect(url_for('my_orders'))
 
 
@@ -1655,6 +2054,23 @@ def mark_order_read(order_id):
     db.session.commit()
     return redirect(url_for('admin_panel'))
 
+@app.route("/admin/order/<int:order_id>", methods=["GET", "POST"])
+@login_required
+def admin_order_detail(order_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    ord = Order.query.get_or_404(order_id)
+    if request.method == "POST":
+        ord.order_code = request.form.get("order_code", "").strip() or None
+        ord.admin_notes = request.form.get("admin_notes", "").strip() or None
+        ord.is_read = True
+        db.session.commit()
+        flash("تم حفظ التعديلات على الأوردر بنجاح!")
+        return redirect(url_for('admin_order_detail', order_id=ord.id))
+    return render_template_string(
+        HTML_TEMPLATE, page='order_detail', order=ord,
+        cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Admin", settings=get_settings()
+    )
+
 @app.route("/admin/add-category", methods=["POST"])
 @login_required
 def admin_add_category():
@@ -1699,7 +2115,8 @@ def admin_add_product():
 
     db.session.add(Product(
         name=request.form.get("name"), price=float(request.form.get("price")),
-        category=request.form.get("category"), image=image_url
+        category=request.form.get("category"), image=image_url,
+        description=request.form.get("description", "").strip() or None
     ))
     db.session.commit()
     flash("تمت إضافة المنتج بنجاح!")
@@ -1714,6 +2131,7 @@ def admin_edit_product(prod_id):
         prod.name = request.form.get("name")
         prod.price = float(request.form.get("price"))
         prod.category = request.form.get("category")
+        prod.description = request.form.get("description", "").strip() or None
         
         uploaded_img = save_uploaded_file(request.files.get("image_file"))
         if uploaded_img:
@@ -1791,6 +2209,12 @@ def admin_update_settings():
 
     if request.form.get("coupon_code", "").strip():
         settings.coupon_code = request.form.get("coupon_code").strip()
+
+    if request.form.get("usd_exchange_rate"):
+        try:
+            settings.usd_exchange_rate = float(request.form.get("usd_exchange_rate"))
+        except ValueError:
+            pass
 
     db.session.commit()
     flash("تم تحديث الإعدادات بنجاح!")
