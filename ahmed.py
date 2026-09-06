@@ -1679,8 +1679,34 @@ def seed_data():
         admin.is_admin = True
         db.session.commit()
 
+def run_lightweight_migrations():
+    """
+    بيتأكد إن كل الأعمدة الموجودة في الـ Models (زي site_name, total_visits, login_count...)
+    فعلاً موجودة في قاعدة البيانات الحقيقية، ولو أي عمود جديد ناقص بيضيفه تلقائياً بـ ALTER TABLE
+    من غير ما يمسح أي بيانات موجودة. ده مهم جداً لما نستخدم قاعدة بيانات حقيقية زي Postgres،
+    لأن db.create_all() بينشئ الجداول الناقصة بس ومش بيعدل جدول موجود بالفعل.
+    """
+    from sqlalchemy import inspect, text
+    inspector = inspect(db.engine)
+    for table in db.metadata.tables.values():
+        if not inspector.has_table(table.name):
+            continue
+        existing_columns = {col['name'] for col in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing_columns:
+                continue
+            try:
+                col_type = column.type.compile(db.engine.dialect)
+                with db.engine.connect() as conn:
+                    conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'))
+                    conn.commit()
+                print(f"[migration] تمت إضافة العمود '{column.name}' لجدول '{table.name}'")
+            except Exception as e:
+                print(f"[migration] فشل إضافة العمود '{column.name}' لجدول '{table.name}': {e}")
+
 with app.app_context():
     db.create_all()
+    run_lightweight_migrations()
     seed_data()
 
 if __name__ == "__main__":
