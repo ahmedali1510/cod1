@@ -536,6 +536,10 @@ HTML_TEMPLATE = """
                 <span>▼</span>
             </div>
             <div id="sec-customers" class="admin-section-content">
+                <form action="/admin/search-customer" method="GET" style="display:flex; gap:10px; margin-bottom:15px;">
+                    <input type="text" name="q" placeholder="ابحث بالإيميل أو رقم الهاتف..." required style="flex:1; padding:9px; border:1px solid #ccc; border-radius:4px;">
+                    <button type="submit" style="background:var(--primary-color); border:none; padding:9px 18px; border-radius:4px; font-weight:bold; cursor:pointer;">🔍 بحث</button>
+                </form>
                 <table class="admin-table">
                     <thead><tr><th>#</th><th>الاسم</th><th>البريد الإلكتروني</th><th>الهاتف</th><th>عدد مرات الدخول</th><th>نوع الحساب</th><th>إجراء</th></tr></thead>
                     <tbody>
@@ -575,7 +579,8 @@ HTML_TEMPLATE = """
                             {% for conv in paged_chats %}
                                 <a href="/admin?session={{ conv.session_id }}&chat_page={{ chat_page }}" class="client-chat-item {% if active_session == conv.session_id %}active{% endif %}">
                                     <div>
-                                        <strong>{{ conv.email }}</strong><br>
+                                        <strong>{{ conv.display_name }}</strong><br>
+                                        <small style="color:#888;">{{ conv.email }}</small><br>
                                         <small>{{ conv.last_time[:16] }}</small>
                                     </div>
                                     {% if conv.unread_count > 0 %}
@@ -594,6 +599,14 @@ HTML_TEMPLATE = """
                     </div>
                     <div class="chat-main-area">
                         {% if active_session %}
+                            {% if active_customer %}
+                            <div style="background:#f1f2f6; padding:10px 14px; border-bottom:1px solid #ddd; font-size:12px; line-height:1.8;">
+                                <strong>{{ active_customer.first_name }} {{ active_customer.last_name }}</strong>
+                                <a href="/admin/customer/{{ active_customer.id }}" style="color:#0084ff; text-decoration:none; margin-right:8px;">(عرض البروفايل الكامل)</a><br>
+                                📧 {{ active_customer.email }} &nbsp;|&nbsp; 📱 {{ active_customer.phone or '-' }}<br>
+                                📍 {{ active_customer.address or '-' }}
+                            </div>
+                            {% endif %}
                             <div class="admin-messages-box" id="adminMsgBox"></div>
                             <form class="admin-reply-box" id="adminReplyForm">
                                 <input type="text" id="adminReplyInput" placeholder="اكتب ردك هنا..." required autocomplete="off">
@@ -1312,7 +1325,14 @@ def api_chat_messages():
     if not session_id: return jsonify({"status": "error", "messages": []})
     messages = SupportMessage.query.filter_by(session_id=session_id).order_by(SupportMessage.created_at.asc()).all()
     msgs_list = [{"sender_type": m.sender_type, "message": m.message} for m in messages]
+
+    # لو الأدمن هو اللي بيفتح المحادثة دي، نعتبر رسايل العميل "مقروءة" فوراً عشان تختفي العلامة الحمراء
+    if current_user.is_admin:
+        SupportMessage.query.filter_by(session_id=session_id, sender_type='client', is_read=False).update({SupportMessage.is_read: True})
+        db.session.commit()
+
     return jsonify({"status": "success", "messages": msgs_list})
+
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -1549,9 +1569,11 @@ def admin_panel():
     for s in raw_sessions:
         unread_cnt = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client', is_read=False).count()
         first_msg = SupportMessage.query.filter_by(session_id=s.session_id, sender_type='client').first()
+        chat_customer = User.query.get(first_msg.user_id) if first_msg else None
         chat_sessions.append({
             "session_id": s.session_id, "last_time": str(s.last_time), "unread_count": unread_cnt,
-            "email": first_msg.client_email if first_msg else "عميل مسجل"
+            "email": first_msg.client_email if first_msg else "عميل مسجل",
+            "display_name": f"{chat_customer.first_name} {chat_customer.last_name}" if chat_customer else "عميل"
         })
     
     total_chat_pages = (len(chat_sessions) + chats_per_page - 1) // chats_per_page
@@ -1559,6 +1581,15 @@ def admin_panel():
     
     active_session = request.args.get("session")
     if not active_session and paged_chats: active_session = paged_chats[0]["session_id"]
+
+    active_customer = None
+    if active_session:
+        # نعتبر رسايل العميل مقروءة أول ما الأدمن يفتح المحادثة (حتى من غير ما ينتظر الـ AJAX)
+        SupportMessage.query.filter_by(session_id=active_session, sender_type='client', is_read=False).update({SupportMessage.is_read: True})
+        db.session.commit()
+        active_first_msg = SupportMessage.query.filter_by(session_id=active_session, sender_type='client').first()
+        if active_first_msg:
+            active_customer = User.query.get(active_first_msg.user_id)
 
     total_registered_users = User.query.count()
     total_logins = db.session.query(db.func.coalesce(db.func.sum(User.login_count), 0)).scalar()
@@ -1580,13 +1611,29 @@ def admin_panel():
     return render_template_string(
         HTML_TEMPLATE, page='admin', 
         paged_orders=paged_orders, total_orders_count=total_orders_count, total_order_pages=total_order_pages, order_page=order_page,
-        paged_chats=paged_chats, total_chat_pages=total_chat_pages, chat_page=chat_page, active_session=active_session,
+        paged_chats=paged_chats, total_chat_pages=total_chat_pages, chat_page=chat_page, active_session=active_session, active_customer=active_customer,
         custom_categories=Category.query.all(), all_products=Product.query.all(),
         total_registered_users=total_registered_users, total_logins=total_logins, total_visits=total_visits,
         paged_customers=paged_customers, total_customer_pages=total_customer_pages, customer_page=customer_page,
         product_totals_sorted=product_totals_sorted,
         cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Admin", settings=get_settings()
     )
+
+@app.route("/admin/search-customer", methods=["GET"])
+@login_required
+def admin_search_customer():
+    if not current_user.is_admin: return redirect(url_for('home'))
+    query_str = request.args.get("q", "").strip()
+    if not query_str:
+        flash("من فضلك اكتب إيميل أو رقم هاتف للبحث.")
+        return redirect(url_for('admin_panel'))
+    user = User.query.filter(
+        db.or_(User.email.ilike(f"%{query_str}%"), User.phone.ilike(f"%{query_str}%"))
+    ).first()
+    if user:
+        return redirect(url_for('admin_view_customer', user_id=user.id))
+    flash(f"لم يتم العثور على أي عميل بالإيميل أو الرقم: {query_str}")
+    return redirect(url_for('admin_panel'))
 
 @app.route("/admin/customer/<int:user_id>")
 @login_required
