@@ -86,6 +86,7 @@ class SiteSettings(db.Model):
     shipping_fee = db.Column(db.Float, default=50.0)
     logo_url = db.Column(db.String(500), nullable=True)
     total_visits = db.Column(db.Integer, default=0)
+    site_name = db.Column(db.String(150), default='Anything Shop')
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -132,7 +133,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anything Shop - متجر احترافي</title>
+    <title>{{ settings.site_name or 'Anything Shop' }} - متجر احترافي</title>
     <style>
         :root {
             --header-bg: {{ settings.header_color }};
@@ -259,7 +260,7 @@ HTML_TEMPLATE = """
                 </svg>
             {% endif %}
         </div>
-        Anything Shop
+        {{ settings.site_name or 'Anything Shop' }}
     </a>
     
     <form action="/search" method="GET" class="search-bar">
@@ -305,31 +306,45 @@ HTML_TEMPLATE = """
     {% if page == 'home' or page == 'search' or page == 'category' %}
         <div class="welcome-banner">
             <div>
-                <h3>أهلاً بك في متجر Anything Shop التجاري المتكامل!</h3>
+                <h3>أهلاً بك في متجر {{ settings.site_name or 'Anything Shop' }} التجاري المتكامل!</h3>
                 <p>استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب خصم 10% باستخدام كود الخصم (Anything 10).</p>
             </div>
         </div>
 
         <h2>{{ 'نتائج البحث عن: ' ~ search_query if page == 'search' else ('منتجات قسم: ' ~ current_cat if page == 'category' else 'المنتجات المتاحة') }}</h2>
+        {% macro product_card(product) %}
+        <div class="card">
+            <div>
+                <img src="{{ product.image }}" alt="{{ product.name }}">
+                <div class="card-title">{{ product.name }}</div>
+                <small style="color:#565959;">{{ product.category }}</small>
+            </div>
+            <div>
+                <div class="card-price">{{ product.price }} ج.م</div>
+                <form action="/add-to-cart" method="POST">
+                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                    <button type="submit" class="btn-add">أضف إلى السلة</button>
+                </form>
+            </div>
+        </div>
+        {% endmacro %}
         {% if products %}
+            {% if page == 'home' %}
+                {% for cat_name, group_products in products|groupby('category') %}
+                    <h3 style="margin:22px 0 10px; padding-bottom:6px; border-bottom:2px solid var(--primary-color); color: var(--header-bg);">{{ cat_name }}</h3>
+                    <div class="products-grid">
+                        {% for product in group_products %}
+                            {{ product_card(product) }}
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            {% else %}
             <div class="products-grid">
                 {% for product in products %}
-                <div class="card">
-                    <div>
-                        <img src="{{ product.image }}" alt="{{ product.name }}">
-                        <div class="card-title">{{ product.name }}</div>
-                        <small style="color:#565959;">{{ product.category }}</small>
-                    </div>
-                    <div>
-                        <div class="card-price">{{ product.price }} ج.م</div>
-                        <form action="/add-to-cart" method="POST">
-                            <input type="hidden" name="product_id" value="{{ product.id }}">
-                            <button type="submit" class="btn-add">أضف إلى السلة</button>
-                        </form>
-                    </div>
-                </div>
+                    {{ product_card(product) }}
                 {% endfor %}
             </div>
+            {% endif %}
 
             {% if total_product_pages > 1 %}
             <div class="pagination-box">
@@ -692,6 +707,7 @@ HTML_TEMPLATE = """
             </div>
             <div id="sec-design" class="admin-section-content">
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
+                    <div class="form-group"><label>اسم الموقع</label><input type="text" name="site_name" value="{{ settings.site_name or 'Anything Shop' }}" required></div>
                     <div class="form-group"><label>رفع شعار الموقع (Logo)</label><input type="file" name="logo_file" accept="image/*"></div>
                     <div class="form-group"><label>أو رابط الشعار (Logo URL)</label><input type="url" name="logo_url" value="{{ settings.logo_url or '' }}"></div>
                     
@@ -896,7 +912,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 });
 </script>
-<footer><small>©️ 2026 Anything Shop - جميع الحقوق محفوظة.</small></footer>
+<footer><small>©️ 2026 {{ settings.site_name or 'Anything Shop' }} - جميع الحقوق محفوظة.</small></footer>
 </body>
 </html>
 """
@@ -1123,8 +1139,9 @@ def track_site_visits():
 @app.route("/")
 def home():
     page_num = int(request.args.get('page', 1))
-    per_page = 10
-    query = Product.query
+    per_page = 20
+    # الترتيب حسب القسم أولاً عشان منتجات نفس القسم تفضل مع بعض ومتتفرقش بين الصفحات
+    query = Product.query.order_by(Product.category.asc(), Product.id.asc())
     total_count = query.count()
     total_pages = (total_count + per_page - 1) // per_page
     paged_products = query.offset((page_num - 1) * per_page).limit(per_page).all()
@@ -1138,8 +1155,8 @@ def home():
 @app.route("/category/<cat_name>")
 def category_view(cat_name):
     page_num = int(request.args.get('page', 1))
-    per_page = 10
-    query = Product.query.filter_by(category=cat_name)
+    per_page = 20
+    query = Product.query.filter_by(category=cat_name).order_by(Product.id.asc())
     total_count = query.count()
     total_pages = (total_count + per_page - 1) // per_page
     paged_products = query.offset((page_num - 1) * per_page).limit(per_page).all()
@@ -1156,9 +1173,9 @@ def search():
     if not query_str: return redirect(url_for('home'))
     
     page_num = int(request.args.get('page', 1))
-    per_page = 10
+    per_page = 20
     filters = [Product.name.ilike(f"%{w}%") for w in query_str.split()] + [Product.category.ilike(f"%{w}%") for w in query_str.split()]
-    query = Product.query.filter(db.or_(*filters))
+    query = Product.query.filter(db.or_(*filters)).order_by(Product.category.asc(), Product.id.asc())
     
     total_count = query.count()
     total_pages = (total_count + per_page - 1) // per_page
@@ -1599,6 +1616,8 @@ def admin_delete_product(prod_id):
 def admin_update_settings():
     if not current_user.is_admin: return redirect(url_for('home'))
     settings = get_settings()
+    if request.form.get("site_name", "").strip():
+        settings.site_name = request.form.get("site_name").strip()
     settings.header_color = request.form.get("header_color")
     settings.primary_color = request.form.get("primary_color")
     settings.price_color = request.form.get("price_color")
