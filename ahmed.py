@@ -2,6 +2,7 @@ import os
 import json
 import hmac
 import hashlib
+import base64
 import requests
 from collections import defaultdict
 from datetime import datetime
@@ -67,9 +68,21 @@ class Product(db.Model):
     name = db.Column(db.String(150), nullable=False)
     price = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(100), nullable=False)
-    image = db.Column(db.String(500), nullable=False)
+    image = db.Column(db.Text, nullable=False)
     is_sold_out = db.Column(db.Boolean, default=False)
     description = db.Column(db.Text, nullable=True)
+
+    @property
+    def gallery(self):
+        """كل صور المنتج: الصورة الرئيسية + الصور الإضافية، حد أقصى 10 صور"""
+        imgs = [self.image] + [im.image_url for im in self.extra_images]
+        return imgs[:10]
+
+class ProductImage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    image_url = db.Column(db.Text, nullable=False)
+    product = db.relationship('Product', backref=db.backref('extra_images', lazy=True, cascade="all, delete-orphan"))
 
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -86,12 +99,12 @@ class SiteSettings(db.Model):
     card_bg_color = db.Column(db.String(20), default='#ffffff')
     font_size = db.Column(db.Integer, default=14)
     shipping_fee = db.Column(db.Float, default=50.0)
-    logo_url = db.Column(db.String(500), nullable=True)
+    logo_url = db.Column(db.Text, nullable=True)
     total_visits = db.Column(db.Integer, default=0)
     site_name = db.Column(db.String(150), default='Anything Shop')
     welcome_title = db.Column(db.String(200), default='أهلاً بك في متجرنا التجاري المتكامل!')
     welcome_text = db.Column(db.Text, default='استمتع بتجربة تسوق فريدة، عروض حصرية على أول طلب. استخدم كود الخصم (Anything 10) للحصول على خصم 10% على أول طلب.')
-    banner_image_url = db.Column(db.String(500), nullable=True)
+    banner_image_url = db.Column(db.Text, nullable=True)
     coupon_code = db.Column(db.String(100), default='Anything 10')
     usd_exchange_rate = db.Column(db.Float, default=50.0)
 
@@ -503,9 +516,16 @@ HTML_TEMPLATE = """
         <div style="display:flex; gap:25px; flex-wrap:wrap; background:var(--card-bg); padding:20px; border-radius:8px; border:1px solid #ddd;">
             <div style="flex:1; min-width:280px; position:relative;">
                 {% if product.is_sold_out %}
-                <div style="position:absolute; top:8px; left:8px; background:#dc3545; color:#fff; font-size:12px; font-weight:bold; padding:4px 10px; border-radius:4px;">نفذت الكمية</div>
+                <div style="position:absolute; top:8px; left:8px; background:#dc3545; color:#fff; font-size:12px; font-weight:bold; padding:4px 10px; border-radius:4px; z-index:2;">نفذت الكمية</div>
                 {% endif %}
-                <img src="{{ product.image }}" alt="{{ product.name }}" style="width:100%; max-height:400px; object-fit:cover; border-radius:8px;">
+                <img id="mainProductImage" src="{{ product.gallery[0] }}" alt="{{ product.name }}" style="width:100%; max-height:400px; object-fit:cover; border-radius:8px;">
+                {% if product.gallery|length > 1 %}
+                <div style="display:flex; gap:8px; margin-top:10px; overflow-x:auto; padding-bottom:6px; -webkit-overflow-scrolling:touch;">
+                    {% for img_url in product.gallery %}
+                    <img src="{{ img_url }}" onclick="document.getElementById('mainProductImage').src='{{ img_url }}'" style="width:60px; height:60px; min-width:60px; object-fit:cover; border-radius:6px; border:2px solid #ddd; cursor:pointer;">
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
             <div style="flex:1; min-width:280px;">
                 <h2>{{ product.name }}</h2>
@@ -803,8 +823,9 @@ HTML_TEMPLATE = """
                         </select>
                     </div>
                     <div class="form-group"><label>وصف المنتج (هيظهر في صفحة تفاصيل المنتج)</label><textarea name="description" rows="3" placeholder="اكتب وصف المنتج هنا..."></textarea></div>
-                    <div class="form-group"><label>رفع صورة المنتج</label><input type="file" name="image_file" accept="image/*"></div>
+                    <div class="form-group"><label>رفع صورة المنتج الرئيسية</label><input type="file" name="image_file" accept="image/*"></div>
                     <div class="form-group"><label>أو رابط صورة خارجي</label><input type="url" name="image_url"></div>
+                    <div class="form-group"><label>صور إضافية للمنتج (اختياري، لحد 9 صور زيادة عن الرئيسية)</label><input type="file" name="extra_images" accept="image/*" multiple></div>
                     <button type="submit" class="btn-submit">حفظ المنتج</button>
                 </form>
             </div>
@@ -972,10 +993,24 @@ HTML_TEMPLATE = """
                     </select>
                 </div>
                 <div class="form-group"><label>وصف المنتج</label><textarea name="description" rows="3">{{ edit_prod.description or '' }}</textarea></div>
-                <div class="form-group"><label>رفع صورة جديدة</label><input type="file" name="image_file" accept="image/*"></div>
-                <div class="form-group"><label>رابط الصورة الحالي</label><input type="url" name="image_url" value="{{ edit_prod.image }}"></div>
+                <div class="form-group"><label>رفع صورة رئيسية جديدة (تستبدل الحالية)</label><input type="file" name="image_file" accept="image/*"></div>
+                <div class="form-group"><label>رابط الصورة الرئيسية الحالي</label><input type="url" name="image_url" value="{{ edit_prod.image }}"></div>
+                <div class="form-group"><label>إضافة صور إضافية جديدة للمعرض (لحد {{ 9 - (edit_prod.extra_images|length) }} صورة زيادة)</label><input type="file" name="extra_images" accept="image/*" multiple></div>
                 <button type="submit" class="btn-submit">حفظ التعديلات</button>
             </form>
+
+            {% if edit_prod.extra_images %}
+            <h4 style="margin-top:20px;">🖼️ الصور الإضافية الحالية</h4>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                {% for img in edit_prod.extra_images %}
+                <div style="text-align:center;">
+                    <img src="{{ img.image_url }}" style="width:80px; height:80px; object-fit:cover; border-radius:6px; border:1px solid #ccc;">
+                    <br>
+                    <a href="/admin/delete-product-image/{{ img.id }}" class="btn-danger" style="display:inline-block; margin-top:4px;" onclick="return confirm('حذف الصورة دي؟')">حذف</a>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
         </div>
 
     {% elif page == 'login' %}
@@ -1115,96 +1150,46 @@ document.addEventListener("DOMContentLoaded", function() {
 """
 
 # ============================================================
-# ===================  تكامل Paymob الحقيقي  ==================
+# ===================  تكامل Paymob الحقيقي (Intention API) ==================
 # ============================================================
-PAYMOB_API_KEY = os.environ.get("PAYMOB_API_KEY")
-PAYMOB_INTEGRATION_ID = os.environ.get("PAYMOB_INTEGRATION_ID")
-PAYMOB_IFRAME_ID = os.environ.get("PAYMOB_IFRAME_ID")  # لازم تضيفه في .env من لوحة Paymob
+# ملحوظة: Paymob ألغوا الطريقة القديمة (auth token -> order -> payment key -> iframe)
+# والمفروض تستخدم Intention API الجديدة (خطوة واحدة بس + Unified Checkout).
+PAYMOB_SECRET_KEY = os.environ.get("PAYMOB_SECRET_KEY")   # مفتاح جديد لازم تجيبه من Paymob (مختلف عن الـ API Key القديم)
+PAYMOB_PUBLIC_KEY = os.environ.get("PAYMOB_PUBLIC_KEY")
+PAYMOB_INTEGRATION_ID = os.environ.get("PAYMOB_INTEGRATION_ID")  # استخدم 3867824 وقت التجربة حسب إيميل Paymob
 PAYMOB_HMAC_KEY = os.environ.get("PAYMOB_HMAC_KEY")
 
-PAYMOB_BASE_URL = "https://accept.paymob.com/api"
+PAYMOB_INTENTION_URL = "https://accept.paymob.com/v1/intention/"
+PAYMOB_CHECKOUT_URL = "https://accept.paymob.com/unifiedcheckout/"
 
 
 class PaymobError(Exception):
     pass
 
 
-def paymob_get_auth_token():
-    """الخطوة 1: الحصول على auth token من Paymob باستخدام الـ API Key."""
-    try:
-        resp = requests.post(
-            f"{PAYMOB_BASE_URL}/auth/tokens",
-            json={"api_key": PAYMOB_API_KEY},
-            timeout=15
-        )
-        resp.raise_for_status()
-        return resp.json()["token"]
-    except Exception as e:
-        raise PaymobError(f"فشل الحصول على توكن المصادقة من Paymob: {e}")
-
-
-def paymob_register_order(auth_token, amount_cents, merchant_order_id, items):
-    """الخطوة 2: تسجيل الأوردر على سيرفرات Paymob."""
-    payload = {
-        "auth_token": auth_token,
-        "delivery_needed": "false",
-        "amount_cents": str(int(amount_cents)),
-        "currency": "EGP",
-        "merchant_order_id": str(merchant_order_id),
-        "items": items,
-    }
-    try:
-        resp = requests.post(f"{PAYMOB_BASE_URL}/ecommerce/orders", json=payload, timeout=15)
-        resp.raise_for_status()
-        return resp.json()["id"]
-    except Exception as e:
-        raise PaymobError(f"فشل تسجيل الأوردر على Paymob: {e}")
-
-
-def paymob_get_payment_key(auth_token, amount_cents, paymob_order_id, billing_data):
-    """الخطوة 3: طلب payment key المستخدم لفتح صفحة الدفع (iframe)."""
-    payload = {
-        "auth_token": auth_token,
-        "amount_cents": str(int(amount_cents)),
-        "expiration": 3600,
-        "order_id": paymob_order_id,
-        "billing_data": billing_data,
-        "currency": "EGP",
-        "integration_id": int(PAYMOB_INTEGRATION_ID),
-    }
-    try:
-        resp = requests.post(f"{PAYMOB_BASE_URL}/acceptance/payment_keys", json=payload, timeout=15)
-        resp.raise_for_status()
-        return resp.json()["token"]
-    except Exception as e:
-        raise PaymobError(f"فشل الحصول على مفتاح الدفع من Paymob: {e}")
-
-
-def paymob_start_payment(order, user):
+def paymob_create_intention(order, user):
     """
-    ينفذ خطوات Paymob الثلاثة كاملة ويرجع رابط الـ iframe اللي المفروض
-    نوجّه له العميل عشان يدخل بيانات الفيزا ويدفع فعلياً.
+    بينشئ Intention واحدة على Paymob (الطريقة الحديثة المطلوبة بدل الطريقة القديمة الملغاة)
+    ويرجع client_secret اللي بنستخدمه لبناء رابط Unified Checkout.
     """
-    if not (PAYMOB_API_KEY and PAYMOB_INTEGRATION_ID and PAYMOB_IFRAME_ID):
+    if not (PAYMOB_SECRET_KEY and PAYMOB_PUBLIC_KEY and PAYMOB_INTEGRATION_ID):
         raise PaymobError(
-            "إعدادات Paymob غير مكتملة في ملف .env "
-            "(محتاج PAYMOB_API_KEY, PAYMOB_INTEGRATION_ID, PAYMOB_IFRAME_ID)."
+            "إعدادات Paymob غير مكتملة في .env "
+            "(محتاج PAYMOB_SECRET_KEY, PAYMOB_PUBLIC_KEY, PAYMOB_INTEGRATION_ID)."
         )
 
     amount_cents = int(round(order.total_price * 100))
-
     items_json = json.loads(order.items_json)
     paymob_items = [
         {
             "name": it["name"][:255],
-            "amount_cents": str(int(round(it["price"] * 100))),
+            "amount": int(round(it["price"] * 100)),
             "description": it["name"][:255],
             "quantity": it["qty"],
         }
         for it in items_json
     ]
 
-    # نقسم اسم العميل لاسم أول وأخير كما يطلب Paymob
     first_name = user.first_name or "Customer"
     last_name = user.last_name or "Shop"
 
@@ -1216,27 +1201,42 @@ def paymob_start_payment(order, user):
         "street": (order.address or "NA")[:255],
         "building": "NA",
         "phone_number": order.phone or "01000000000",
-        "shipping_method": "NA",
-        "postal_code": "NA",
         "city": "Cairo",
-        "country": "EG",
+        "country": "EGY",
         "last_name": last_name,
         "state": "NA",
     }
 
-    auth_token = paymob_get_auth_token()
-    paymob_order_id = paymob_register_order(
-        auth_token, amount_cents, order.id, paymob_items
-    )
-    payment_key = paymob_get_payment_key(
-        auth_token, amount_cents, paymob_order_id, billing_data
-    )
+    payload = {
+        "amount": amount_cents,
+        "currency": "EGP",
+        "payment_methods": [int(PAYMOB_INTEGRATION_ID)],
+        "items": paymob_items,
+        "billing_data": billing_data,
+        "special_reference": str(order.id),
+        "notification_url": url_for('paymob_webhook', _external=True),
+        "redirection_url": url_for('paymob_callback', _external=True),
+    }
 
-    order.paymob_order_id = str(paymob_order_id)
+    try:
+        resp = requests.post(
+            PAYMOB_INTENTION_URL,
+            json=payload,
+            headers={"Authorization": f"Token {PAYMOB_SECRET_KEY}", "Content-Type": "application/json"},
+            timeout=20
+        )
+        resp.raise_for_status()
+        return resp.json()["client_secret"]
+    except Exception as e:
+        raise PaymobError(f"فشل إنشاء عملية الدفع على Paymob: {e}")
+
+
+def paymob_start_payment(order, user):
+    """بينشئ الـ Intention ويرجع رابط Unified Checkout اللي نوجّه له العميل."""
+    client_secret = paymob_create_intention(order, user)
+    order.paymob_order_id = client_secret
     db.session.commit()
-
-    iframe_url = f"{PAYMOB_BASE_URL.replace('/api', '')}/api/acceptance/iframes/{PAYMOB_IFRAME_ID}?payment_token={payment_key}"
-    return iframe_url
+    return f"{PAYMOB_CHECKOUT_URL}?publicKey={PAYMOB_PUBLIC_KEY}&clientSecret={client_secret}"
 
 
 def verify_paymob_hmac(data, received_hmac):
@@ -1403,19 +1403,27 @@ def save_uploaded_file(file_storage):
     if not file_storage or file_storage.filename == '':
         return None
 
-    # المحاولة الأولى: Cloudinary (تخزين دائم مايتمسحش)
+    # المحاولة الأولى: Cloudinary لو متظبط (اختياري، مش إجباري)
     cloud_url = upload_to_cloudinary(file_storage)
     if cloud_url:
         return cloud_url
 
-    # لو Cloudinary مش متظبط، نرجع للحفظ المحلي (ملحوظة: ده بيتمسح على Render عند كل Deploy)
-    if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)
-    filename = secure_filename(file_storage.filename)
-    unique_filename = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{filename}"
-    filepath = os.path.join(UPLOAD_FOLDER, unique_filename)
-    file_storage.save(filepath)
-    return f"/{filepath}"
+    # الطريقة الافتراضية: تخزين الصورة كـ Base64 جوه قاعدة البيانات نفسها (مش على ملفات السيرفر)
+    # عشان تفضل موجودة دايماً حتى لو السيرفر اتعمله Deploy جديد أو اتقفل شوية وفتح تاني.
+    try:
+        file_storage.stream.seek(0)
+        raw = file_storage.stream.read()
+        if not raw:
+            return None
+        if len(raw) > 2 * 1024 * 1024:  # حد أقصى 2 ميجابايت للصورة الواحدة
+            flash("الصورة كبيرة جداً (أكبر من 2 ميجا) — من فضلك ارفع صورة أصغر.")
+            return None
+        b64 = base64.b64encode(raw).decode('utf-8')
+        mimetype = file_storage.mimetype or 'image/jpeg'
+        return f"data:{mimetype};base64,{b64}"
+    except Exception as e:
+        print(f"[upload] فشل حفظ الصورة: {e}")
+        return None
 
 def get_cart_count():
     return sum(session.get('cart', {}).values())
@@ -2113,12 +2121,22 @@ def admin_add_product():
     if not image_url:
         image_url = request.form.get("image_url", "https://via.placeholder.com/400")
 
-    db.session.add(Product(
+    new_product = Product(
         name=request.form.get("name"), price=float(request.form.get("price")),
         category=request.form.get("category"), image=image_url,
         description=request.form.get("description", "").strip() or None
-    ))
+    )
+    db.session.add(new_product)
     db.session.commit()
+
+    # الصور الإضافية (حد أقصى 9 زيادة عن الرئيسية = 10 إجمالي)
+    extra_files = request.files.getlist("extra_images")[:9]
+    for f in extra_files:
+        url = save_uploaded_file(f)
+        if url:
+            db.session.add(ProductImage(product_id=new_product.id, image_url=url))
+    db.session.commit()
+
     flash("تمت إضافة المنتج بنجاح!")
     return redirect(url_for('admin_panel'))
 
@@ -2138,11 +2156,32 @@ def admin_edit_product(prod_id):
             prod.image = uploaded_img
         elif request.form.get("image_url"):
             prod.image = request.form.get("image_url")
-            
+
         db.session.commit()
+
+        # إضافة صور جديدة للمعرض من غير ما نتخطى حد الـ 9 صور إضافية
+        remaining_slots = max(0, 9 - len(prod.extra_images))
+        extra_files = request.files.getlist("extra_images")[:remaining_slots]
+        for f in extra_files:
+            url = save_uploaded_file(f)
+            if url:
+                db.session.add(ProductImage(product_id=prod.id, image_url=url))
+        db.session.commit()
+
         flash("تم التعديل بنجاح!")
         return redirect(url_for('admin_panel'))
     return render_template_string(HTML_TEMPLATE, page='edit_product', edit_prod=prod, custom_categories=Category.query.all(), cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
+
+@app.route("/admin/delete-product-image/<int:image_id>")
+@login_required
+def admin_delete_product_image(image_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    img = ProductImage.query.get_or_404(image_id)
+    prod_id = img.product_id
+    db.session.delete(img)
+    db.session.commit()
+    flash("تم حذف الصورة.")
+    return redirect(url_for('admin_edit_product', prod_id=prod_id))
 
 @app.route("/admin/delete-product/<int:prod_id>")
 @login_required
@@ -2286,6 +2325,24 @@ def run_lightweight_migrations():
                 print(f"[migration] تمت إضافة العمود '{column.name}' لجدول '{table.name}'")
             except Exception as e:
                 print(f"[migration] فشل إضافة العمود '{column.name}' لجدول '{table.name}': {e}")
+
+    # توسيع أعمدة الصور من VARCHAR(500) لـ TEXT عشان تستحمل الصور المخزّنة Base64 جوه قاعدة البيانات
+    image_columns = [
+        ("product", "image"),
+        ("product_image", "image_url"),
+        ("site_settings", "logo_url"),
+        ("site_settings", "banner_image_url"),
+    ]
+    for table_name, col_name in image_columns:
+        if not inspector.has_table(table_name):
+            continue
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text(f'ALTER TABLE "{table_name}" ALTER COLUMN "{col_name}" TYPE TEXT'))
+                conn.commit()
+        except Exception:
+            # SQLite مش محتاج تحويل نوع العمود أصلاً، وPostgres لو العمود TEXT بالفعل بيتخطاها بأمان
+            db.session.rollback()
 
 with app.app_context():
     db.create_all()
