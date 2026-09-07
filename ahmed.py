@@ -1160,7 +1160,7 @@ PAYMOB_INTEGRATION_ID = os.environ.get("PAYMOB_INTEGRATION_ID")  # استخدم 
 PAYMOB_HMAC_KEY = os.environ.get("PAYMOB_HMAC_KEY")
 
 PAYMOB_INTENTION_URL = "https://accept.paymob.com/api/v1/intention/"
-PAYMOB_CHECKOUT_URL = "https://accept.paymob.com/unifiedcheckout/"
+PAYMOB_CHECKOUT_URL = "https://accept.paymob.com/api/v1/intention"
 
 
 class PaymobError(Exception):
