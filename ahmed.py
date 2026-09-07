@@ -12,7 +12,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from authlib.integrations.flask_client import OAuthfff
+from authlib.integrations.flask_client import OAuth
 
 # تحميل متغيرات البيئة من ملف .env
 load_dotenv()
@@ -1160,7 +1160,7 @@ PAYMOB_INTEGRATION_ID = os.environ.get("PAYMOB_INTEGRATION_ID")  # استخدم 
 PAYMOB_HMAC_KEY = os.environ.get("PAYMOB_HMAC_KEY")
 
 PAYMOB_INTENTION_URL = "https://accept.paymob.com/api/v1/intention/"
-PAYMOB_CHECKOUT_URL = "https://accept.paymob.com/api/v1/intention/"
+PAYMOB_CHECKOUT_URL = "https://accept.paymob.com/unifiedcheckout/"
 
 
 class PaymobError(Exception):
