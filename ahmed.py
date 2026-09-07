@@ -1159,8 +1159,8 @@ PAYMOB_PUBLIC_KEY = os.environ.get("PAYMOB_PUBLIC_KEY")
 PAYMOB_INTEGRATION_ID = os.environ.get("PAYMOB_INTEGRATION_ID")  # استخدم 3867824 وقت التجربة حسب إيميل Paymob
 PAYMOB_HMAC_KEY = os.environ.get("PAYMOB_HMAC_KEY")
 
-PAYMOB_INTENTION_URL = "https://accept.paymob.com/api/v1/intention/"
-PAYMOB_CHECKOUT_URL = "https://accept.paymob.com/api/v1/intention"
+PAYMOB_INTENTION_URL = "https://accept.paymob.com/v1/intention/"
+PAYMOB_CHECKOUT_URL = "https://accept.paymob.com/unifiedcheckout/"
 
 
 class PaymobError(Exception):
