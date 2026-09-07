@@ -230,6 +230,18 @@ HTML_TEMPLATE = """
         .admin-section-content { padding: 18px; display: none; border-top: 1px solid #ddd; }
         .admin-section-content.open { display: block; }
 
+        .admin-layout { display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap; }
+        .admin-sidebar-nav { width:230px; flex-shrink:0; background: var(--card-bg); border:1px solid #ccc; border-radius:8px; overflow:hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.05); position:sticky; top:75px; }
+        .admin-nav-link { display:block; padding:14px 18px; color: var(--text-color); text-decoration:none; font-weight:bold; font-size:13px; border-bottom:1px solid #eee; transition: background 0.15s; }
+        .admin-nav-link:last-child { border-bottom:none; }
+        .admin-nav-link:hover { background:#f1f2f6; }
+        .admin-nav-link.active { background: var(--primary-color); color:#000; }
+        .admin-main-content { flex:1; min-width:280px; background: var(--card-bg); border:1px solid #ccc; border-radius:8px; padding:20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        @media (max-width: 700px) {
+            .admin-sidebar-nav { width:100%; position:static; display:flex; flex-wrap:wrap; }
+            .admin-nav-link { flex:1; min-width:130px; text-align:center; border-bottom:none; border-left:1px solid #eee; }
+        }
+
         .pagination-box { display: flex; justify-content: center; gap: 6px; margin: 25px 0; }
         .pagination-box a, .pagination-box span { padding: 8px 14px; border: 1px solid #ccc; background: #fff; color: #333; text-decoration: none; border-radius: 4px; font-size: 13px; font-weight: bold; }
         .pagination-box a.active, .pagination-box span.active { background: var(--primary-color); color: #000; border-color: #d4af37; }
@@ -611,14 +623,23 @@ HTML_TEMPLATE = """
         {% endfor %}
 
     {% elif page == 'admin' %}
-        <h2>⚙️ لوحة تحكم الأدمن</h2>
-
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-stats')">
-                <span>📊 إحصائيات الموقع</span>
-                <span>▼</span>
+        <div class="admin-layout">
+            <div class="admin-sidebar-nav">
+                <a href="/admin?section=stats" class="admin-nav-link {% if admin_section == 'stats' %}active{% endif %}">📊 إحصائيات الموقع</a>
+                <a href="/admin?section=customers" class="admin-nav-link {% if admin_section == 'customers' %}active{% endif %}">👥 الحسابات المسجلة</a>
+                <a href="/admin?section=chat" class="admin-nav-link {% if admin_section == 'chat' %}active{% endif %}">💬 الدعم الفني</a>
+                <a href="/admin?section=orders" class="admin-nav-link {% if admin_section == 'orders' %}active{% endif %}">📦 إدارة الأوردرات</a>
+                <a href="/admin?section=categories" class="admin-nav-link {% if admin_section == 'categories' %}active{% endif %}">📂 إدارة الأقسام</a>
+                <a href="/admin?section=add-product" class="admin-nav-link {% if admin_section == 'add-product' %}active{% endif %}">➕ إضافة منتج</a>
+                <a href="/admin?section=manage-products" class="admin-nav-link {% if admin_section == 'manage-products' %}active{% endif %}">🛠️ إدارة المنتجات</a>
+                <a href="/admin?section=homepage" class="admin-nav-link {% if admin_section == 'homepage' %}active{% endif %}">🏠 الصفحة الرئيسية</a>
+                <a href="/admin?section=design" class="admin-nav-link {% if admin_section == 'design' %}active{% endif %}">🎨 التصميم</a>
             </div>
-            <div id="sec-stats" class="admin-section-content">
+
+            <div class="admin-main-content">
+                <h2 style="margin-top:0;">⚙️ لوحة تحكم الأدمن</h2>
+
+                {% if admin_section == 'stats' %}
                 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom:20px;">
                     <div style="background:#f1f2f6; border-radius:8px; padding:18px; text-align:center;">
                         <div style="font-size:28px; font-weight:bold; color: var(--primary-color);">{{ total_visits }}</div>
@@ -647,15 +668,8 @@ HTML_TEMPLATE = """
                 {% else %}
                 <p style="color:#666;">لا يوجد طلبات مسجلة حتى الآن.</p>
                 {% endif %}
-            </div>
-        </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-customers')">
-                <span>👥 كل الحسابات المسجلة (إجمالي: {{ total_registered_users }})</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-customers" class="admin-section-content">
+                {% elif admin_section == 'customers' %}
                 <form action="/admin/search-customer" method="GET" style="display:flex; gap:10px; margin-bottom:15px;">
                     <input type="text" name="q" placeholder="ابحث بالإيميل أو رقم الهاتف..." required style="flex:1; padding:9px; border:1px solid #ccc; border-radius:4px;">
                     <button type="submit" style="background:var(--primary-color); border:none; padding:9px 18px; border-radius:4px; font-weight:bold; cursor:pointer;">🔍 بحث</button>
@@ -679,25 +693,17 @@ HTML_TEMPLATE = """
                 {% if total_customer_pages > 1 %}
                 <div class="pagination-box">
                     {% for p in range(1, total_customer_pages + 1) %}
-                        <a href="/admin?customer_page={{ p }}" class="{% if customer_page == p %}active{% endif %}">{{ p }}</a>
+                        <a href="/admin?section=customers&customer_page={{ p }}" class="{% if customer_page == p %}active{% endif %}">{{ p }}</a>
                     {% endfor %}
                 </div>
                 {% endif %}
-            </div>
-        </div>
 
-
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-chat')">
-                <span>💬 المحادثات الحية والدعم الفني (للعملاء المسجلين فقط)</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-chat" class="admin-section-content {% if active_session %}open{% endif %}">
+                {% elif admin_section == 'chat' %}
                 <div class="live-chat-admin-container">
                     <div class="chat-sidebar">
                         <div class="chat-sidebar-list">
                             {% for conv in paged_chats %}
-                                <a href="/admin?session={{ conv.session_id }}&chat_page={{ chat_page }}" class="client-chat-item {% if active_session == conv.session_id %}active{% endif %}">
+                                <a href="/admin?section=chat&session={{ conv.session_id }}&chat_page={{ chat_page }}" class="client-chat-item {% if active_session == conv.session_id %}active{% endif %}">
                                     <div>
                                         <strong>{{ conv.display_name }}</strong><br>
                                         <small style="color:#888;">{{ conv.email }}</small><br>
@@ -712,7 +718,7 @@ HTML_TEMPLATE = """
                         {% if total_chat_pages > 1 %}
                         <div class="pagination-box" style="margin:5px 0;">
                             {% for p in range(1, total_chat_pages + 1) %}
-                                <a href="/admin?chat_page={{ p }}{% if active_session %}&session={{ active_session }}{% endif %}" class="{% if chat_page == p %}active{% endif %}">{{ p }}</a>
+                                <a href="/admin?section=chat&chat_page={{ p }}{% if active_session %}&session={{ active_session }}{% endif %}" class="{% if chat_page == p %}active{% endif %}">{{ p }}</a>
                             {% endfor %}
                         </div>
                         {% endif %}
@@ -737,15 +743,8 @@ HTML_TEMPLATE = """
                         {% endif %}
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-orders')">
-                <span>📦 إدارة الأوردرات وتفاصيل الدفع (إجمالي: {{ total_orders_count }})</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-orders" class="admin-section-content">
+                {% elif admin_section == 'orders' %}
                 <table class="admin-table">
                     <thead><tr><th>رقم الطلب</th><th>الكود</th><th>العميل</th><th>الهاتف</th><th>المنتجات المطلوبة</th><th>طريقة الدفع</th><th>العنوان</th><th>الإجمالي</th><th>الحالة</th><th>إجراء</th></tr></thead>
                     <tbody>
@@ -777,19 +776,12 @@ HTML_TEMPLATE = """
                 {% if total_order_pages > 1 %}
                 <div class="pagination-box">
                     {% for p in range(1, total_order_pages + 1) %}
-                        <a href="/admin?order_page={{ p }}{% if active_session %}&session={{ active_session }}&chat_page={{ chat_page }}{% endif %}" class="{% if order_page == p %}active{% endif %}">{{ p }}</a>
+                        <a href="/admin?section=orders&order_page={{ p }}" class="{% if order_page == p %}active{% endif %}">{{ p }}</a>
                     {% endfor %}
                 </div>
                 {% endif %}
-            </div>
-        </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-categories')">
-                <span>📂 إدارة أقسام الموقع</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-categories" class="admin-section-content">
+                {% elif admin_section == 'categories' %}
                 <form action="/admin/add-category" method="POST" style="display:flex; gap:10px; margin-bottom:15px;">
                     <input type="text" name="cat_name" placeholder="اسم القسم الجديد..." required style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
                     <button type="submit" style="background:var(--primary-color); border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">إضافة قسم</button>
@@ -805,15 +797,8 @@ HTML_TEMPLATE = """
                         </li>
                     {% endfor %}
                 </ul>
-            </div>
-        </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-add-prod')">
-                <span>➕ إضافة منتج جديد</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-add-prod" class="admin-section-content">
+                {% elif admin_section == 'add-product' %}
                 <form action="/admin/add-product" method="POST" enctype="multipart/form-data">
                     <div class="form-group"><label>اسم المنتج</label><input type="text" name="name" required></div>
                     <div class="form-group"><label>السعر (ج.م)</label><input type="number" step="0.01" name="price" required></div>
@@ -828,15 +813,8 @@ HTML_TEMPLATE = """
                     <div class="form-group"><label>صور إضافية للمنتج (اختياري، لحد 9 صور زيادة عن الرئيسية)</label><input type="file" name="extra_images" accept="image/*" multiple></div>
                     <button type="submit" class="btn-submit">حفظ المنتج</button>
                 </form>
-            </div>
-        </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-manage-prod')">
-                <span>🛠️ إدارة وتعديل المنتجات</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-manage-prod" class="admin-section-content">
+                {% elif admin_section == 'manage-products' %}
                 <table class="admin-table">
                     <thead><tr><th>#</th><th>الاسم</th><th>القسم</th><th>السعر</th><th>الحالة</th><th>إجراءات</th></tr></thead>
                     <tbody>
@@ -860,15 +838,8 @@ HTML_TEMPLATE = """
                         {% endfor %}
                     </tbody>
                 </table>
-            </div>
-        </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-homepage')">
-                <span>🏠 محتوى الصفحة الرئيسية، العروض، وكود الخصم</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-homepage" class="admin-section-content">
+                {% elif admin_section == 'homepage' %}
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
                     <div class="form-group"><label>عنوان الترحيب في الصفحة الرئيسية</label><input type="text" name="welcome_title" value="{{ settings.welcome_title or '' }}"></div>
                     <div class="form-group"><label>نص الترحيب / الوصف تحت العنوان (السطر ده كله قابل للتعديل، تقدر تحذف أو تعدل ذكر كود الخصم منه براحتك)</label><textarea name="welcome_text" rows="3">{{ settings.welcome_text or '' }}</textarea></div>
@@ -880,15 +851,8 @@ HTML_TEMPLATE = """
                     <p style="color:#888; font-size:12px; margin-top:-5px;">PayPal مش بيدعم الجنيه المصري مباشرة، فالمبلغ بيتحول لدولار بالسعر ده وقت الدفع. حدّثه من وقت للتاني حسب سعر السوق.</p>
                     <button type="submit" class="btn-submit">حفظ محتوى الصفحة الرئيسية</button>
                 </form>
-            </div>
-        </div>
 
-        <div class="admin-section-box">
-            <div class="admin-section-header" onclick="toggleSection('sec-design')">
-                <span>🎨 التحكم الكامل في ألوان الديزاين، الأيقونات، والشعار</span>
-                <span>▼</span>
-            </div>
-            <div id="sec-design" class="admin-section-content">
+                {% elif admin_section == 'design' %}
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
                     <div class="form-group"><label>اسم الموقع</label><input type="text" name="site_name" value="{{ settings.site_name or 'Anything Shop' }}" required></div>
                     <div class="form-group"><label>رفع شعار الموقع (Logo)</label><input type="file" name="logo_file" accept="image/*"></div>
@@ -907,8 +871,10 @@ HTML_TEMPLATE = """
                     <div class="form-group" style="margin-top:10px;"><label>مصاريف الشحن</label><input type="number" step="0.01" name="shipping_fee" value="{{ settings.shipping_fee }}" required></div>
                     <button type="submit" class="btn-submit">حفظ كافة تعديلات التصميم والألوان</button>
                 </form>
+                {% endif %}
             </div>
         </div>
+
 
     {% elif page == 'order_detail' %}
         <div class="admin-card" style="max-width:650px; margin:auto;">
@@ -936,7 +902,7 @@ HTML_TEMPLATE = """
                 <div class="form-group"><label>ملاحظات الأدمن الداخلية على الأوردر</label><textarea name="admin_notes" rows="4" placeholder="أي تفاصيل أو وصف تحب تسجله على الأوردر ده...">{{ order.admin_notes or '' }}</textarea></div>
                 <button type="submit" class="btn-submit">حفظ كود الأوردر والملاحظات</button>
             </form>
-            <a href="/admin" class="nav-btn" style="display:inline-block; margin-top:10px;">⬅ رجوع للوحة الأدمن</a>
+            <a href="/admin?section=orders" class="nav-btn" style="display:inline-block; margin-top:10px;">⬅ رجوع للوحة الأدمن</a>
         </div>
 
     {% elif page == 'customer_profile' %}
@@ -976,7 +942,7 @@ HTML_TEMPLATE = """
                 <p>لا يوجد طلبات لهذا العميل حتى الآن.</p>
             {% endif %}
 
-            <a href="/admin" class="nav-btn" style="display:inline-block; margin-top:10px;">⬅ رجوع للوحة الأدمن</a>
+            <a href="/admin?section=customers" class="nav-btn" style="display:inline-block; margin-top:10px;">⬅ رجوع للوحة الأدمن</a>
         </div>
 
     {% elif page == 'edit_product' %}
@@ -1959,6 +1925,8 @@ def my_orders():
 @login_required
 def admin_panel():
     if not current_user.is_admin: return redirect(url_for('home'))
+
+    admin_section = request.args.get('section', 'stats')
     
     order_page = int(request.args.get('order_page', 1))
     orders_per_page = 10
@@ -1986,17 +1954,18 @@ def admin_panel():
     total_chat_pages = (len(chat_sessions) + chats_per_page - 1) // chats_per_page
     paged_chats = chat_sessions[(chat_page - 1) * chats_per_page : chat_page * chats_per_page]
     
-    active_session = request.args.get("session")
-    if not active_session and paged_chats: active_session = paged_chats[0]["session_id"]
-
+    active_session = None
     active_customer = None
-    if active_session:
-        # نعتبر رسايل العميل مقروءة أول ما الأدمن يفتح المحادثة (حتى من غير ما ينتظر الـ AJAX)
-        SupportMessage.query.filter_by(session_id=active_session, sender_type='client', is_read=False).update({SupportMessage.is_read: True})
-        db.session.commit()
-        active_first_msg = SupportMessage.query.filter_by(session_id=active_session, sender_type='client').first()
-        if active_first_msg:
-            active_customer = User.query.get(active_first_msg.user_id)
+    if admin_section == 'chat':
+        active_session = request.args.get("session")
+        if not active_session and paged_chats: active_session = paged_chats[0]["session_id"]
+        if active_session:
+            # نعتبر رسايل العميل مقروءة أول ما الأدمن يفتح المحادثة (حتى من غير ما ينتظر الـ AJAX)
+            SupportMessage.query.filter_by(session_id=active_session, sender_type='client', is_read=False).update({SupportMessage.is_read: True})
+            db.session.commit()
+            active_first_msg = SupportMessage.query.filter_by(session_id=active_session, sender_type='client').first()
+            if active_first_msg:
+                active_customer = User.query.get(active_first_msg.user_id)
 
     total_registered_users = User.query.count()
     total_logins = db.session.query(db.func.coalesce(db.func.sum(User.login_count), 0)).scalar()
@@ -2016,7 +1985,7 @@ def admin_panel():
     paged_customers = all_customers_query.offset((customer_page - 1) * customers_per_page).limit(customers_per_page).all()
 
     return render_template_string(
-        HTML_TEMPLATE, page='admin', 
+        HTML_TEMPLATE, page='admin', admin_section=admin_section,
         paged_orders=paged_orders, total_orders_count=total_orders_count, total_order_pages=total_order_pages, order_page=order_page,
         paged_chats=paged_chats, total_chat_pages=total_chat_pages, chat_page=chat_page, active_session=active_session, active_customer=active_customer,
         custom_categories=Category.query.all(), all_products=Product.query.all(),
@@ -2033,14 +2002,14 @@ def admin_search_customer():
     query_str = request.args.get("q", "").strip()
     if not query_str:
         flash("من فضلك اكتب إيميل أو رقم هاتف للبحث.")
-        return redirect(url_for('admin_panel'))
+        return redirect(url_for('admin_panel', section='customers'))
     user = User.query.filter(
         db.or_(User.email.ilike(f"%{query_str}%"), User.phone.ilike(f"%{query_str}%"))
     ).first()
     if user:
         return redirect(url_for('admin_view_customer', user_id=user.id))
     flash(f"لم يتم العثور على أي عميل بالإيميل أو الرقم: {query_str}")
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='customers'))
 
 @app.route("/admin/customer/<int:user_id>")
 @login_required
@@ -2060,7 +2029,7 @@ def mark_order_read(order_id):
     ord = Order.query.get_or_404(order_id)
     ord.is_read = True
     db.session.commit()
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='orders'))
 
 @app.route("/admin/order/<int:order_id>", methods=["GET", "POST"])
 @login_required
@@ -2088,7 +2057,7 @@ def admin_add_category():
         db.session.add(Category(name=name))
         db.session.commit()
         flash("تم إضافة القسم بنجاح!")
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='categories'))
 
 @app.route("/admin/edit-category/<int:cat_id>", methods=["POST"])
 @login_required
@@ -2102,7 +2071,7 @@ def admin_edit_category(cat_id):
         Product.query.filter_by(category=old_name).update({Product.category: new_name})
         db.session.commit()
         flash("تم تحديث اسم القسم بنجاح!")
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='categories'))
 
 @app.route("/admin/delete-category/<int:cat_id>")
 @login_required
@@ -2111,7 +2080,7 @@ def admin_delete_category(cat_id):
     db.session.delete(Category.query.get_or_404(cat_id))
     db.session.commit()
     flash("تم حذف القسم بنجاح.")
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='categories'))
 
 @app.route("/admin/add-product", methods=["POST"])
 @login_required
@@ -2138,7 +2107,7 @@ def admin_add_product():
     db.session.commit()
 
     flash("تمت إضافة المنتج بنجاح!")
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='manage-products'))
 
 @app.route("/admin/edit-product/<int:prod_id>", methods=["GET", "POST"])
 @login_required
@@ -2169,7 +2138,7 @@ def admin_edit_product(prod_id):
         db.session.commit()
 
         flash("تم التعديل بنجاح!")
-        return redirect(url_for('admin_panel'))
+        return redirect(url_for('admin_panel', section='manage-products'))
     return render_template_string(HTML_TEMPLATE, page='edit_product', edit_prod=prod, custom_categories=Category.query.all(), cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
 
 @app.route("/admin/delete-product-image/<int:image_id>")
@@ -2190,7 +2159,7 @@ def admin_delete_product(prod_id):
     db.session.delete(Product.query.get_or_404(prod_id))
     db.session.commit()
     flash("تم حذف المنتج.")
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='manage-products'))
 
 @app.route("/admin/toggle-sold-out/<int:prod_id>")
 @login_required
@@ -2200,7 +2169,7 @@ def admin_toggle_sold_out(prod_id):
     prod.is_sold_out = not prod.is_sold_out
     db.session.commit()
     flash(f"تم تحديد \"{prod.name}\" كـ {'نفذت الكمية (Sold Out)' if prod.is_sold_out else 'متاح للبيع'}.")
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='manage-products'))
 
 @app.route("/admin/update-settings", methods=["POST"])
 @login_required
@@ -2257,7 +2226,7 @@ def admin_update_settings():
 
     db.session.commit()
     flash("تم تحديث الإعدادات بنجاح!")
-    return redirect(url_for('admin_panel'))
+    return redirect(url_for('admin_panel', section='design'))
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
