@@ -1145,15 +1145,17 @@ def paymob_create_intention(order, user):
         )
 
     amount_cents = int(round(order.total_price * 100))
-    items_json = json.loads(order.items_json)
+
+    # مهم: Paymob بترفض الطلب بخطأ 406 (Amount Mismatch) لو مجموع "items" مايساويش "amount" بالظبط.
+    # عشان total_price بيشمل الشحن والخصم، أسهل وأضمن حل إننا نبعت "عنصر واحد" يمثل الفاتورة كاملة
+    # بدل ما نحاول نطابق كل منتج لوحده مع الشحن والخصم.
     paymob_items = [
         {
-            "name": it["name"][:255],
-            "amount": int(round(it["price"] * 100)),
-            "description": it["name"][:255],
-            "quantity": it["qty"],
+            "name": f"طلب رقم #{order.id}",
+            "amount": amount_cents,
+            "description": f"Order #{order.id}",
+            "quantity": 1,
         }
-        for it in items_json
     ]
 
     first_name = user.first_name or "Customer"
@@ -1191,8 +1193,16 @@ def paymob_create_intention(order, user):
             headers={"Authorization": f"Token {PAYMOB_SECRET_KEY}", "Content-Type": "application/json"},
             timeout=20
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            # نضيف تفاصيل رسالة الخطأ الراجعة من Paymob نفسها عشان تبقى واضحة في السجلات (Logs)
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            raise PaymobError(f"Paymob رد بخطأ {resp.status_code}: {detail}")
         return resp.json()["client_secret"]
+    except PaymobError:
+        raise
     except Exception as e:
         raise PaymobError(f"فشل إنشاء عملية الدفع على Paymob: {e}")
 
