@@ -107,6 +107,10 @@ class SiteSettings(db.Model):
     banner_image_url = db.Column(db.Text, nullable=True)
     coupon_code = db.Column(db.String(100), default='Anything 10')
     usd_exchange_rate = db.Column(db.Float, default=50.0)
+    footer_text = db.Column(db.String(300), nullable=True)
+    support_email = db.Column(db.String(150), nullable=True)
+    support_phone = db.Column(db.String(50), nullable=True)
+    logo_size = db.Column(db.Integer, default=36)
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -167,6 +171,7 @@ HTML_TEMPLATE = """
             --icon-color: {{ settings.icon_color }};
             --card-bg: {{ settings.card_bg_color }};
             --font-size: {{ settings.font_size }}px;
+            --logo-size: {{ settings.logo_size or 36 }}px;
         }
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin:0; padding:0; background: var(--bg-color); color: var(--text-color); font-size: var(--font-size); text-align:right; overflow-x: hidden; }
@@ -175,7 +180,7 @@ HTML_TEMPLATE = """
         .logo { font-size:20px; font-weight:bold; color: var(--primary-color); text-decoration:none; white-space:nowrap; display: flex; align-items: center; gap: 8px; }
         
         .logo-3d {
-            width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+            width: var(--logo-size); height: var(--logo-size); display: inline-flex; align-items: center; justify-content: center;
             background: linear-gradient(135deg, #131921, #232f3e); border-radius: 8px;
             box-shadow: 0 3px 6px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.2);
             overflow: hidden; border: 1px solid #37475a;
@@ -199,7 +204,7 @@ HTML_TEMPLATE = """
         .nav-categories a { color: var(--icon-color); text-decoration:none; font-weight:500; font-size:13px; padding:4px 8px; border-radius:3px; }
         .nav-categories a:hover, .nav-categories a.active { background:#37475a; color: var(--primary-color); }
         
-        .welcome-banner { background: linear-gradient(135deg, #232f3e, #37475a); color: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .welcome-banner { background: linear-gradient(135deg, #232f3e, #37475a); color: white; padding: 15px 20px; border-radius: 8px; margin-bottom: 20px; display: flex; flex-wrap:wrap; gap:10px; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .welcome-banner h3 { margin: 0; color: var(--primary-color); font-size: 18px; }
         .welcome-banner p { margin: 5px 0 0; font-size: 13px; color: #ddd; }
 
@@ -279,6 +284,26 @@ HTML_TEMPLATE = """
         .payment-status-box.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .payment-status-box.failed { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .payment-status-box.pending { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+
+        /* ===== تجاوب الموقع مع كل المقاسات (موبايل / تابلت / لابتوب) ===== */
+        @media (max-width: 768px) {
+            .cart-table, .orders-table, .admin-table { display:block; overflow-x:auto; white-space:nowrap; -webkit-overflow-scrolling:touch; }
+            .live-chat-admin-container { flex-direction: column; height:auto; }
+            .chat-sidebar { width:100%; border-left:none; border-bottom:1px solid #ddd; max-height:220px; }
+            .chat-main-area { min-height:300px; }
+            .container { padding:0 12px; }
+            .checkout-form, .auth-form, .admin-card { padding:14px; }
+            .products-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; }
+        }
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .products-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+            .admin-sidebar-nav { width:190px; }
+        }
+        @media (max-width: 480px) {
+            .logo { font-size:16px; }
+            .card-title { font-size:13px; }
+            h2 { font-size:18px; }
+        }
     </style>
 </head>
 <body>
@@ -602,7 +627,25 @@ HTML_TEMPLATE = """
                 <h2>⏳ جاري تأكيد الدفع...</h2>
                 <p>طلبك رقم #{{ order.id }} قيد المراجعة، سيتم تحديث الحالة تلقائياً خلال لحظات.</p>
             {% endif %}
-            <a href="/orders" class="nav-btn" style="display:inline-block; margin-top:15px;">عرض طلباتي</a>
+        </div>
+
+        <div style="background:var(--card-bg); padding:18px; border-radius:8px; border:1px solid #ddd; margin-top:15px; max-width:600px; margin-left:auto; margin-right:auto;">
+            <h3 style="margin-top:0;">📦 تفاصيل الطلب #{{ order.id }}</h3>
+            {% if order.order_code %}<p><strong>كود الأوردر:</strong> {{ order.order_code }}</p>{% endif %}
+            <p><strong>حالة الدفع:</strong> {{ order.payment_status }}</p>
+            <p><strong>طريقة الدفع:</strong> {{ order.payment_method }}</p>
+            <p><strong>رقم الهاتف:</strong> {{ order.phone }}</p>
+            <p><strong>عنوان التوصيل:</strong> {{ order.address }}</p>
+            <h4>المنتجات المطلوبة</h4>
+            <ul style="margin:0 0 10px; padding-right:18px;">
+                {% for it in order.items_list %}
+                    <li>{{ it.name }} × {{ it.qty }} — {{ "%.2f"|format(it.price * it.qty) }} ج.م</li>
+                {% endfor %}
+            </ul>
+            {% if order.discount_amount > 0 %}<p style="color:green;"><strong>الخصم:</strong> -{{ "%.2f"|format(order.discount_amount) }} ج.م</p>{% endif %}
+            <p><strong>مصاريف الشحن:</strong> {{ "%.2f"|format(order.shipping_fee) }} ج.م</p>
+            <h3 style="color: var(--price-color);">الإجمالي: {{ "%.2f"|format(order.total_price) }} ج.م</h3>
+            <a href="/orders" class="nav-btn" style="display:inline-block; margin-top:10px;">عرض كل طلباتي</a>
         </div>
 
     {% elif page == 'orders' %}
@@ -627,13 +670,14 @@ HTML_TEMPLATE = """
             <div class="admin-sidebar-nav">
                 <a href="/admin?section=stats" class="admin-nav-link {% if admin_section == 'stats' %}active{% endif %}">📊 إحصائيات الموقع</a>
                 <a href="/admin?section=customers" class="admin-nav-link {% if admin_section == 'customers' %}active{% endif %}">👥 الحسابات المسجلة</a>
-                <a href="/admin?section=chat" class="admin-nav-link {% if admin_section == 'chat' %}active{% endif %}">💬 الدعم الفني</a>
-                <a href="/admin?section=orders" class="admin-nav-link {% if admin_section == 'orders' %}active{% endif %}">📦 إدارة الأوردرات</a>
+                <a href="/admin?section=chat" class="admin-nav-link {% if admin_section == 'chat' %}active{% endif %}">💬 الدعم الفني {% if admin_unread_chats and admin_unread_chats > 0 %}<span class="badge-notification" style="position:static; display:inline-block; margin-right:4px;">{{ admin_unread_chats }}</span>{% endif %}</a>
+                <a href="/admin?section=orders" class="admin-nav-link {% if admin_section == 'orders' %}active{% endif %}">📦 إدارة الأوردرات {% if admin_unread_orders and admin_unread_orders > 0 %}<span class="badge-notification" style="position:static; display:inline-block; margin-right:4px;">{{ admin_unread_orders }}</span>{% endif %}</a>
                 <a href="/admin?section=categories" class="admin-nav-link {% if admin_section == 'categories' %}active{% endif %}">📂 إدارة الأقسام</a>
                 <a href="/admin?section=add-product" class="admin-nav-link {% if admin_section == 'add-product' %}active{% endif %}">➕ إضافة منتج</a>
                 <a href="/admin?section=manage-products" class="admin-nav-link {% if admin_section == 'manage-products' %}active{% endif %}">🛠️ إدارة المنتجات</a>
                 <a href="/admin?section=homepage" class="admin-nav-link {% if admin_section == 'homepage' %}active{% endif %}">🏠 الصفحة الرئيسية</a>
                 <a href="/admin?section=design" class="admin-nav-link {% if admin_section == 'design' %}active{% endif %}">🎨 التصميم</a>
+                <a href="/admin?section=extra-settings" class="admin-nav-link {% if admin_section == 'extra-settings' %}active{% endif %}">🔧 إعدادات إضافية</a>
             </div>
 
             <div class="admin-main-content">
@@ -841,6 +885,7 @@ HTML_TEMPLATE = """
 
                 {% elif admin_section == 'homepage' %}
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="redirect_section" value="homepage">
                     <div class="form-group"><label>عنوان الترحيب في الصفحة الرئيسية</label><input type="text" name="welcome_title" value="{{ settings.welcome_title or '' }}"></div>
                     <div class="form-group"><label>نص الترحيب / الوصف تحت العنوان (السطر ده كله قابل للتعديل، تقدر تحذف أو تعدل ذكر كود الخصم منه براحتك)</label><textarea name="welcome_text" rows="3">{{ settings.welcome_text or '' }}</textarea></div>
                     <div class="form-group"><label>رفع صورة إعلان/عرض (بانر) للصفحة الرئيسية</label><input type="file" name="banner_image_file" accept="image/*"></div>
@@ -854,9 +899,25 @@ HTML_TEMPLATE = """
 
                 {% elif admin_section == 'design' %}
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="redirect_section" value="design">
                     <div class="form-group"><label>اسم الموقع</label><input type="text" name="site_name" value="{{ settings.site_name or 'Anything Shop' }}" required></div>
-                    <div class="form-group"><label>رفع شعار الموقع (Logo)</label><input type="file" name="logo_file" accept="image/*"></div>
-                    <div class="form-group"><label>أو رابط الشعار (Logo URL)</label><input type="url" name="logo_url" value="{{ settings.logo_url or '' }}"></div>
+
+                    {% if settings.logo_url %}
+                    <div class="form-group">
+                        <label>الشعار الحالي</label><br>
+                        <img src="{{ settings.logo_url }}" alt="الشعار الحالي" style="max-width:100px; max-height:100px; border:1px solid #ccc; border-radius:6px; padding:4px; background:#fff;">
+                    </div>
+                    {% endif %}
+                    <div class="form-group"><label>رفع شعار جديد للموقع (Logo)</label><input type="file" name="logo_file" accept="image/*"></div>
+                    <div class="form-group"><label>أو رابط شعار خارجي (Logo URL)</label><input type="url" name="logo_url" value="{{ settings.logo_url if settings.logo_url and settings.logo_url.startswith('http') else '' }}" placeholder="https://..."></div>
+                    {% if settings.logo_url %}
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:8px; font-weight:normal; color:#dc3545;">
+                            <input type="checkbox" name="remove_logo" value="1" style="width:auto;">
+                            حذف الشعار الحالي (وإرجاع الأيقونة الافتراضية)
+                        </label>
+                    </div>
+                    {% endif %}
                     
                     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
                         <div class="form-group"><label>لون الهيدر</label><input type="color" name="header_color" value="{{ settings.header_color }}"></div>
@@ -870,6 +931,21 @@ HTML_TEMPLATE = """
 
                     <div class="form-group" style="margin-top:10px;"><label>مصاريف الشحن</label><input type="number" step="0.01" name="shipping_fee" value="{{ settings.shipping_fee }}" required></div>
                     <button type="submit" class="btn-submit">حفظ كافة تعديلات التصميم والألوان</button>
+                </form>
+
+                {% elif admin_section == 'extra-settings' %}
+                <form action="/admin/update-settings" method="POST">
+                    <input type="hidden" name="redirect_section" value="extra-settings">
+                    <h4 style="margin-top:0;">📞 بيانات التواصل والفوتر</h4>
+                    <div class="form-group"><label>إيميل الدعم الفني (هيظهر تحت الموقع)</label><input type="email" name="support_email" value="{{ settings.support_email or '' }}" placeholder="support@example.com"></div>
+                    <div class="form-group"><label>رقم تليفون الدعم الفني (هيظهر تحت الموقع)</label><input type="tel" name="support_phone" value="{{ settings.support_phone or '' }}" placeholder="01xxxxxxxxx"></div>
+                    <div class="form-group"><label>نص إضافي في الفوتر (اختياري)</label><input type="text" name="footer_text" value="{{ settings.footer_text or '' }}" placeholder="مثال: التوصيل لجميع محافظات مصر"></div>
+
+                    <h4>📐 حجم العناصر</h4>
+                    <div class="form-group"><label>حجم الخط العام في الموقع (px)</label><input type="number" name="font_size" value="{{ settings.font_size or 14 }}" min="10" max="22"></div>
+                    <div class="form-group"><label>حجم أيقونة/شعار الموقع (px)</label><input type="number" name="logo_size" value="{{ settings.logo_size or 36 }}" min="20" max="80"></div>
+
+                    <button type="submit" class="btn-submit">حفظ الإعدادات الإضافية</button>
                 </form>
                 {% endif %}
             </div>
@@ -908,20 +984,38 @@ HTML_TEMPLATE = """
     {% elif page == 'customer_profile' %}
         <div class="admin-card" style="max-width:650px; margin:auto;">
             <h2>👤 بروفايل العميل #{{ customer.id }}</h2>
-            <table class="admin-table">
+
+            <form action="/admin/customer/{{ customer.id }}/edit" method="POST">
+                <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" value="{{ customer.first_name }}" required></div>
+                <div class="form-group"><label>الاسم الأخير</label><input type="text" name="last_name" value="{{ customer.last_name }}" required></div>
+                <div class="form-group"><label>البريد الإلكتروني</label><input type="email" value="{{ customer.email }}" disabled style="background:#eee;"></div>
+                <div class="form-group"><label>رقم الهاتف</label><input type="tel" name="phone" value="{{ customer.phone or '' }}"></div>
+                <div class="form-group"><label>العنوان</label><textarea name="address" rows="2">{{ customer.address or '' }}</textarea></div>
+                <div class="form-group">
+                    <label style="display:flex; align-items:center; gap:8px; font-weight:normal;">
+                        <input type="checkbox" name="is_admin" value="1" {% if customer.is_admin %}checked{% endif %} style="width:auto;">
+                        صلاحيات أدمن لهذا الحساب
+                    </label>
+                </div>
+                <button type="submit" class="btn-submit">حفظ التعديلات على الحساب</button>
+            </form>
+
+            <table class="admin-table" style="margin-top:15px;">
                 <tbody>
-                    <tr><td><strong>الاسم الكامل</strong></td><td>{{ customer.first_name }} {{ customer.last_name }}</td></tr>
-                    <tr><td><strong>البريد الإلكتروني</strong></td><td>{{ customer.email }}</td></tr>
-                    <tr><td><strong>رقم الهاتف</strong></td><td>{{ customer.phone or '-' }}</td></tr>
-                    <tr><td><strong>العنوان</strong></td><td>{{ customer.address or '-' }}</td></tr>
-                    <tr><td><strong>تاريخ الميلاد</strong></td><td>{{ customer.birth_date or '-' }}</td></tr>
                     <tr><td><strong>طريقة إنشاء الحساب</strong></td><td>{{ 'Google' if customer.auth_provider == 'google' else 'تسجيل مباشر' }}</td></tr>
-                    <tr><td><strong>نوع الحساب</strong></td><td>{{ 'أدمن' if customer.is_admin else 'عميل عادي' }}</td></tr>
                     <tr><td><strong>عدد مرات تسجيل الدخول</strong></td><td>{{ customer.login_count or 0 }}</td></tr>
                     <tr><td><strong>استخدم كود الخصم؟</strong></td><td>{{ 'نعم' if customer.used_coupon else 'لا' }}</td></tr>
                 </tbody>
             </table>
             <p style="color:#888; font-size:12px; margin-top:10px;">🔒 كلمة المرور مشفّرة (hashed) ولا يمكن عرضها لأي طرف، حتى الأدمن، لأسباب أمان.</p>
+
+            <div style="background:#fff3f3; border:1px solid #f5c6cb; border-radius:8px; padding:15px; margin-top:20px;">
+                <h4 style="margin-top:0; color:#721c24;">⚠️ منطقة الخطر</h4>
+                <p style="font-size:12px; color:#721c24;">حذف الحساب هيمسح كل بياناته وطلباته ومحادثاته نهائياً، ومينفعش يترجع تاني.</p>
+                <form action="/admin/customer/{{ customer.id }}/delete" method="POST" onsubmit="return confirm('متأكد إنك عايز تحذف الحساب ده نهائياً مع كل طلباته؟')">
+                    <button type="submit" class="btn-danger" style="padding:8px 16px;">🗑️ حذف الحساب نهائياً</button>
+                </form>
+            </div>
 
             <h3 style="margin-top:25px;">📦 طلبات هذا العميل ({{ customer_orders|length }})</h3>
             {% if customer_orders %}
@@ -1028,9 +1122,24 @@ document.addEventListener("DOMContentLoaded", function() {
     const msgContainer = document.getElementById('chat-messages');
 
     let isChatOpen = false;
+    let chatPollInterval = null;
     if (btn && win) {
-        btn.onclick = () => { isChatOpen = !isChatOpen; win.style.display = isChatOpen ? 'flex' : 'none'; if(isChatOpen) fetchMsgs(); };
-        closeBtn.onclick = () => { isChatOpen = false; win.style.display = 'none'; };
+        btn.onclick = () => {
+            isChatOpen = !isChatOpen;
+            win.style.display = isChatOpen ? 'flex' : 'none';
+            if (isChatOpen) {
+                fetchMsgs();
+                if (chatPollInterval) clearInterval(chatPollInterval);
+                chatPollInterval = setInterval(fetchMsgs, 4000);
+            } else if (chatPollInterval) {
+                clearInterval(chatPollInterval);
+            }
+        };
+        closeBtn.onclick = () => {
+            isChatOpen = false;
+            win.style.display = 'none';
+            if (chatPollInterval) clearInterval(chatPollInterval);
+        };
     }
 
     function fetchMsgs() {
@@ -1110,7 +1219,17 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 });
 </script>
-<footer><small>©️ 2026 {{ settings.site_name or 'Anything Shop' }} - جميع الحقوق محفوظة.</small></footer>
+<footer>
+    <small>©️ 2026 {{ settings.site_name or 'Anything Shop' }} - جميع الحقوق محفوظة.</small>
+    {% if settings.footer_text %}<br><small>{{ settings.footer_text }}</small>{% endif %}
+    {% if settings.support_email or settings.support_phone %}
+    <br><small>
+        {% if settings.support_email %}📧 {{ settings.support_email }}{% endif %}
+        {% if settings.support_email and settings.support_phone %} &nbsp;|&nbsp; {% endif %}
+        {% if settings.support_phone %}📱 {{ settings.support_phone }}{% endif %}
+    </small>
+    {% endif %}
+</footer>
 </body>
 </html>
 """
@@ -1230,6 +1349,17 @@ def verify_paymob_hmac(data, received_hmac):
     ]
 
     def get_nested(d, dotted_key):
+        # الرد اللي بييجي من صفحة الرجوع بعد الدفع (GET /payment/callback) بيبعت المفاتيح
+        # كنص حرفي فيه نقطة زي "source_data.pan" أو "order" مباشرة (مسطّح، مش متداخل).
+        # لكن الـ Webhook (POST JSON) بيبعتها متداخلة فعلاً زي source_data: {pan: ...}.
+        # فبنجرب الحالتين عشان الدالة تشتغل صح في المكانين.
+        if dotted_key in d:
+            return d.get(dotted_key)
+        if dotted_key == "order.id":
+            order_val = d.get("order")
+            if not isinstance(order_val, dict):
+                return order_val
+            return order_val.get("id")
         parts = dotted_key.split(".")
         val = d
         for p in parts:
@@ -1253,7 +1383,12 @@ def verify_paymob_hmac(data, received_hmac):
         hashlib.sha512
     ).hexdigest()
 
-    return hmac.compare_digest(calculated_hmac, received_hmac or "")
+    is_valid = hmac.compare_digest(calculated_hmac, received_hmac or "")
+    if not is_valid:
+        # لوج توضيحي عشان نقدر نشخّص المشكلة من سجلات Render لو الـ HMAC فشل
+        print(f"[paymob][hmac_mismatch] received={received_hmac} calculated={calculated_hmac} raw_data_keys={list(data.keys())}")
+
+    return is_valid
 
 
 # ============================================================
@@ -1465,20 +1600,27 @@ def track_site_visits():
 @app.context_processor
 def inject_notification_counts():
     admin_notif_count = 0
+    admin_unread_orders = 0
+    admin_unread_chats = 0
     customer_notif_count = 0
     try:
         if current_user.is_authenticated:
             if current_user.is_admin:
-                unread_orders = Order.query.filter_by(is_read=False).count()
-                unread_chats = SupportMessage.query.filter_by(sender_type='client', is_read=False).count()
-                admin_notif_count = unread_orders + unread_chats
+                admin_unread_orders = Order.query.filter_by(is_read=False).count()
+                admin_unread_chats = SupportMessage.query.filter_by(sender_type='client', is_read=False).count()
+                admin_notif_count = admin_unread_orders + admin_unread_chats
             else:
                 customer_notif_count = SupportMessage.query.filter_by(
                     session_id=f'user_session_{current_user.id}', sender_type='admin', is_read=False
                 ).count()
     except Exception:
         pass
-    return dict(admin_notif_count=admin_notif_count, customer_notif_count=customer_notif_count)
+    return dict(
+        admin_notif_count=admin_notif_count,
+        admin_unread_orders=admin_unread_orders,
+        admin_unread_chats=admin_unread_chats,
+        customer_notif_count=customer_notif_count
+    )
 
 # --- المسارات الأساسية ---
 @app.route("/")
@@ -1880,6 +2022,7 @@ def paymob_callback():
     """
     data = request.args.to_dict()
     received_hmac = data.get("hmac")
+    print(f"[paymob][callback] received query params: {data}")
 
     order_id = data.get("merchant_order_id")
     order = Order.query.get(int(order_id)) if order_id and order_id.isdigit() else None
@@ -1888,6 +2031,11 @@ def paymob_callback():
         success = data.get("success") == "true"
         order.payment_status = "Paid" if success else "Failed"
         db.session.commit()
+        print(f"[paymob][callback] order #{order.id} updated to {order.payment_status}")
+    elif order:
+        print(f"[paymob][callback] order #{order.id} found لكن HMAC مش سليم - الحالة متغيرتش")
+    else:
+        print(f"[paymob][callback] لم يتم العثور على أوردر بالـ merchant_order_id={order_id}")
     
     if not order:
         flash("لم يتم العثور على الطلب.")
@@ -1908,20 +2056,25 @@ def paymob_webhook():
     payload = request.get_json(silent=True) or {}
     obj = payload.get("obj", payload)
     received_hmac = request.args.get("hmac")
+    print(f"[paymob][webhook] received payload keys: {list(obj.keys())}, hmac_param={received_hmac}")
 
     if not verify_paymob_hmac(obj, received_hmac):
+        print("[paymob][webhook] HMAC غير صحيح - الطلب مرفوض")
         return jsonify({"status": "error", "message": "invalid hmac"}), 401
 
     merchant_order_id = (obj.get("order") or {}).get("merchant_order_id")
     if not merchant_order_id:
+        print(f"[paymob][webhook] مفيش merchant_order_id في obj.order: {obj.get('order')}")
         return jsonify({"status": "error", "message": "no order id"}), 400
 
     order = Order.query.get(int(merchant_order_id))
     if not order:
+        print(f"[paymob][webhook] لم يتم العثور على أوردر برقم {merchant_order_id}")
         return jsonify({"status": "error", "message": "order not found"}), 404
 
     order.payment_status = "Paid" if obj.get("success") else "Failed"
     db.session.commit()
+    print(f"[paymob][webhook] order #{order.id} updated to {order.payment_status}")
     return jsonify({"status": "success"})
 
 
@@ -2031,6 +2184,43 @@ def admin_view_customer(user_id):
         HTML_TEMPLATE, page='customer_profile', customer=customer, customer_orders=customer_orders,
         cart_count=get_cart_count(), categories_list=get_categories_list(), current_cat="Admin", settings=get_settings()
     )
+
+@app.route("/admin/customer/<int:user_id>/edit", methods=["POST"])
+@login_required
+def admin_edit_customer(user_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    customer = User.query.get_or_404(user_id)
+    customer.first_name = request.form.get("first_name", customer.first_name).strip()
+    customer.last_name = request.form.get("last_name", customer.last_name).strip()
+    customer.phone = request.form.get("phone", "").strip() or None
+    customer.address = request.form.get("address", "").strip() or None
+
+    new_is_admin = request.form.get("is_admin") == "1"
+    if customer.id == current_user.id and not new_is_admin:
+        flash("مينفعش تشيل صلاحيات الأدمن من حسابك الحالي بنفسك.")
+    else:
+        customer.is_admin = new_is_admin
+
+    db.session.commit()
+    flash("تم حفظ التعديلات على الحساب بنجاح!")
+    return redirect(url_for('admin_view_customer', user_id=customer.id))
+
+@app.route("/admin/customer/<int:user_id>/delete", methods=["POST"])
+@login_required
+def admin_delete_customer(user_id):
+    if not current_user.is_admin: return redirect(url_for('home'))
+    if user_id == current_user.id:
+        flash("مينفعش تحذف حسابك أنت وانت داخل بيه.")
+        return redirect(url_for('admin_view_customer', user_id=user_id))
+
+    customer = User.query.get_or_404(user_id)
+    # نمسح كل حاجة مرتبطة بيه الأول عشان منكسرش قيود قاعدة البيانات
+    Order.query.filter_by(user_id=customer.id).delete()
+    SupportMessage.query.filter_by(user_id=customer.id).delete()
+    db.session.delete(customer)
+    db.session.commit()
+    flash("تم حذف الحساب وكل بياناته نهائياً.")
+    return redirect(url_for('admin_panel', section='customers'))
 
 @app.route("/admin/mark-order-read/<int:order_id>")
 @login_required
@@ -2207,11 +2397,14 @@ def admin_update_settings():
     if request.form.get("shipping_fee"):
         settings.shipping_fee = float(request.form.get("shipping_fee"))
 
-    uploaded_logo = save_uploaded_file(request.files.get("logo_file"))
-    if uploaded_logo:
-        settings.logo_url = uploaded_logo
-    elif request.form.get("logo_url"):
-        settings.logo_url = request.form.get("logo_url")
+    if request.form.get("remove_logo") == "1":
+        settings.logo_url = None
+    else:
+        uploaded_logo = save_uploaded_file(request.files.get("logo_file"))
+        if uploaded_logo:
+            settings.logo_url = uploaded_logo
+        elif request.form.get("logo_url"):
+            settings.logo_url = request.form.get("logo_url")
 
     # --- محتوى الصفحة الرئيسية والعروض وكود الخصم ---
     if "welcome_title" in request.form:
@@ -2234,9 +2427,28 @@ def admin_update_settings():
         except ValueError:
             pass
 
+    # --- إعدادات إضافية: التواصل، الفوتر، وأحجام العناصر ---
+    if "support_email" in request.form:
+        settings.support_email = request.form.get("support_email", "").strip() or None
+    if "support_phone" in request.form:
+        settings.support_phone = request.form.get("support_phone", "").strip() or None
+    if "footer_text" in request.form:
+        settings.footer_text = request.form.get("footer_text", "").strip() or None
+    if request.form.get("font_size"):
+        try:
+            settings.font_size = int(request.form.get("font_size"))
+        except ValueError:
+            pass
+    if request.form.get("logo_size"):
+        try:
+            settings.logo_size = int(request.form.get("logo_size"))
+        except ValueError:
+            pass
+
     db.session.commit()
     flash("تم تحديث الإعدادات بنجاح!")
-    return redirect(url_for('admin_panel', section='design'))
+    redirect_section = request.form.get("redirect_section", "design")
+    return redirect(url_for('admin_panel', section=redirect_section))
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
