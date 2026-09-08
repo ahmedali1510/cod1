@@ -161,6 +161,7 @@ HTML_TEMPLATE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ settings.site_name or 'Anything Shop' }} - متجر احترافي</title>
+    {% if settings.logo_url %}<link rel="icon" href="{{ settings.logo_url }}">{% endif %}
     <style>
         :root {
             --header-bg: {{ settings.header_color }};
