@@ -375,9 +375,7 @@ HTML_TEMPLATE = """
             {% if current_user.is_admin %}
                 <a href="/admin" class="nav-btn admin-btn">
                     ⚙️ لوحة الأدمن
-                    {% if admin_notif_count and admin_notif_count > 0 %}
-                    <span id="global-admin-badge" class="badge-notification">{{ admin_notif_count }}</span>
-                    {% endif %}
+                    <span id="global-admin-badge" class="badge-notification" style="{% if not admin_notif_count or admin_notif_count == 0 %}display:none;{% endif %}">{{ admin_notif_count or 0 }}</span>
                 </a>
             {% endif %}
             <a href="/profile" class="nav-btn" style="background:#37475a;">👤 حسابي</a>
@@ -722,8 +720,8 @@ HTML_TEMPLATE = """
             <div class="admin-sidebar-nav">
                 <a href="/admin?section=stats" class="admin-nav-link {% if admin_section == 'stats' %}active{% endif %}">📊 إحصائيات الموقع</a>
                 <a href="/admin?section=customers" class="admin-nav-link {% if admin_section == 'customers' %}active{% endif %}">👥 الحسابات المسجلة</a>
-                <a href="/admin?section=chat" class="admin-nav-link {% if admin_section == 'chat' %}active{% endif %}">💬 الدعم الفني {% if admin_unread_chats and admin_unread_chats > 0 %}<span class="badge-notification" style="position:static; display:inline-block; margin-right:4px;">{{ admin_unread_chats }}</span>{% endif %}</a>
-                <a href="/admin?section=orders" class="admin-nav-link {% if admin_section == 'orders' %}active{% endif %}">📦 إدارة الأوردرات {% if admin_unread_orders and admin_unread_orders > 0 %}<span class="badge-notification" style="position:static; display:inline-block; margin-right:4px;">{{ admin_unread_orders }}</span>{% endif %}</a>
+                <a href="/admin?section=chat" class="admin-nav-link {% if admin_section == 'chat' %}active{% endif %}">💬 الدعم الفني <span id="sidebarChatBadge" class="badge-notification" style="position:static; display:{% if admin_unread_chats and admin_unread_chats > 0 %}inline-block{% else %}none{% endif %}; margin-right:4px;">{{ admin_unread_chats or 0 }}</span></a>
+                <a href="/admin?section=orders" class="admin-nav-link {% if admin_section == 'orders' %}active{% endif %}">📦 إدارة الأوردرات <span id="sidebarOrdersBadge" class="badge-notification" style="position:static; display:{% if admin_unread_orders and admin_unread_orders > 0 %}inline-block{% else %}none{% endif %}; margin-right:4px;">{{ admin_unread_orders or 0 }}</span></a>
                 <a href="/admin?section=categories" class="admin-nav-link {% if admin_section == 'categories' %}active{% endif %}">📂 إدارة الأقسام</a>
                 <a href="/admin?section=add-product" class="admin-nav-link {% if admin_section == 'add-product' %}active{% endif %}">➕ إضافة منتج</a>
                 <a href="/admin?section=manage-products" class="admin-nav-link {% if admin_section == 'manage-products' %}active{% endif %}">🛠️ إدارة المنتجات</a>
@@ -1152,13 +1150,14 @@ HTML_TEMPLATE = """
 {% if current_user.is_authenticated %}
 <div id="support-chat-btn" class="chat-widget-btn" style="position:fixed;">
     💬
-    {% if customer_notif_count and customer_notif_count > 0 %}
-    <span class="badge-notification">{{ customer_notif_count }}</span>
-    {% endif %}
+    <span id="chatBtnBadge" class="badge-notification" style="{% if not customer_notif_count or customer_notif_count == 0 %}display:none;{% endif %}">{{ customer_notif_count or 0 }}</span>
 </div>
 <div id="support-chat-window" class="chat-popup">
     <div class="chat-header"><span>الدعم الفني المباشر</span><button id="close-chat">✕</button></div>
     <div id="chat-messages" class="chat-messages-container"></div>
+    <div style="background:#fff3cd; color:#856404; font-size:11px; padding:6px 10px; text-align:center; border-top:1px solid #ffeeba;">
+        ⏱️ عادةً بنرد خلال 24 ساعة
+    </div>
     <div class="chat-footer">
         <div class="chat-footer-row">
             <input type="text" id="chat-input" placeholder="اكتب رسالتك هنا..." autocomplete="off">
@@ -1176,6 +1175,26 @@ function toggleSection(id) {
 
 document.addEventListener("DOMContentLoaded", function() {
     {% if current_user.is_authenticated %}
+    // تحديث لايف لعلامات التنبيه الحمراء (سواء كان الأدمن أو العميل) كل 6 ثواني، في أي صفحة في الموقع
+    function pollNotifications() {
+        fetch('/api/notifications/count').then(res => res.json()).then(data => {
+            function setBadge(el, count) {
+                if (!el) return;
+                if (count > 0) { el.textContent = count; el.style.display = 'inline-block'; }
+                else { el.style.display = 'none'; }
+            }
+            if (data.is_admin) {
+                setBadge(document.getElementById('global-admin-badge'), data.admin_total);
+                setBadge(document.getElementById('sidebarChatBadge'), data.admin_unread_chats);
+                setBadge(document.getElementById('sidebarOrdersBadge'), data.admin_unread_orders);
+            } else {
+                setBadge(document.getElementById('chatBtnBadge'), data.customer_unread);
+            }
+        }).catch(() => {});
+    }
+    pollNotifications();
+    setInterval(pollNotifications, 6000);
+
     let sessionId = 'user_session_{{ current_user.id }}';
     const btn = document.getElementById('support-chat-btn');
     const win = document.getElementById('support-chat-window');
@@ -1857,6 +1876,29 @@ def api_chat_messages():
     return jsonify({"status": "success", "messages": msgs_list})
 
 
+@app.route("/api/notifications/count")
+@login_required
+def api_notifications_count():
+    """
+    Endpoint خفيف بيتسأل كل كذا ثانية من كل صفحة عشان نحدّث علامات التنبيه الحمراء
+    لايف من غير ما نحتاج نعمل Refresh للصفحة كلها.
+    """
+    if current_user.is_admin:
+        unread_orders = Order.query.filter_by(is_read=False).count()
+        unread_chats = SupportMessage.query.filter_by(sender_type='client', is_read=False).count()
+        return jsonify({
+            "is_admin": True,
+            "admin_unread_orders": unread_orders,
+            "admin_unread_chats": unread_chats,
+            "admin_total": unread_orders + unread_chats
+        })
+    else:
+        unread_replies = SupportMessage.query.filter_by(
+            session_id=f'user_session_{current_user.id}', sender_type='admin', is_read=False
+        ).count()
+        return jsonify({"is_admin": False, "customer_unread": unread_replies})
+
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -2216,7 +2258,6 @@ def admin_panel():
     active_customer = None
     if admin_section == 'chat':
         active_session = request.args.get("session")
-        if not active_session and paged_chats: active_session = paged_chats[0]["session_id"]
         if active_session:
             # نعتبر رسايل العميل مقروءة أول ما الأدمن يفتح المحادثة (حتى من غير ما ينتظر الـ AJAX)
             SupportMessage.query.filter_by(session_id=active_session, sender_type='client', is_read=False).update({SupportMessage.is_read: True})
