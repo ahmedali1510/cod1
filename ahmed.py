@@ -3,22 +3,63 @@ import json
 import hmac
 import hashlib
 import base64
+import secrets
 import requests
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from flask import Flask, render_template_string, request, redirect, url_for, session, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from authlib.integrations.flask_client import OAuth
 
 # تحميل متغيرات البيئة من ملف .env
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "ahmed_shop_demo_secret_key_2026")
+
+# مهم جداً على Render/Heroku وأي استضافة بتحط السيرفر خلف بروكسي:
+# البروكسي بيستقبل HTTPS من الزائر لكن بيكلم تطبيقنا بـ HTTP جوّه، فلو معملناش الحاجة دي،
+# أي رابط بيتولّد بـ url_for(..., _external=True) (زي رابط رجوع Google أو Paymob أو PayPal)
+# هيطلع http:// غلط بدل https:// الصحيح، وده بيكسر تسجيل الدخول بـ Google وأي Webhook.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+
+# --- مفتاح الأمان (SECRET_KEY) ---
+# لازم يكون ثابت وسري عشان الجلسات (تسجيل الدخول) تفضل شغالة صح ومحدش يقدر يزوّرها.
+# لو معرفتوش في .env، بنولّد واحد عشوائي قوي بدل قيمة ثابتة معروفة (كانت ثغرة أمنية حقيقية).
+# ملحوظة: لو معملتش SECRET_KEY في Render، كل تسجيلات الدخول هتتصفر عند كل Deploy جديد.
+_secret_key = os.environ.get("SECRET_KEY")
+if not _secret_key:
+    _secret_key = secrets.token_hex(32)
+    print("[أمان] تحذير: SECRET_KEY مش متظبط في .env — تم توليد مفتاح مؤقت عشوائي. "
+          "من فضلك ضيف SECRET_KEY ثابت في Render Environment عشان الجلسات متتصفرش كل Deploy.")
+app.secret_key = _secret_key
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+
+# --- حماية بسيطة من محاولات تخمين الباسورد (Brute Force) على تسجيل الدخول ---
+# ملحوظة: التخزين ده في الذاكرة (مش في قاعدة البيانات)، يعني بيتصفر لو السيرفر اتعاد تشغيله.
+# ده حل بسيط وسريع، ولو عايز حماية أقوى بعدين ممكن ننقلها لقاعدة البيانات أو خدمة زي Redis.
+_login_attempts = {}
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_WINDOW_MINUTES = 15
+
+def is_login_rate_limited(key):
+    now = datetime.utcnow()
+    window_start = now - timedelta(minutes=LOGIN_WINDOW_MINUTES)
+    attempts = [t for t in _login_attempts.get(key, []) if t > window_start]
+    _login_attempts[key] = attempts
+    return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+def record_login_attempt(key):
+    _login_attempts.setdefault(key, []).append(datetime.utcnow())
+
+def clear_login_attempts(key):
+    _login_attempts.pop(key, None)
 
 # --- إعدادات قاعدة البيانات ---
 # لو فيه DATABASE_URL (زي قاعدة بيانات Render PostgreSQL) بيستخدمها، وإلا بيرجع لملف SQLite محلي للتجربة فقط
@@ -396,6 +437,7 @@ HTML_TEMPLATE = """
                     <button type="button" class="btn-add" disabled style="background:#ccc; border-color:#bbb; cursor:not-allowed;">نفذت الكمية</button>
                 {% else %}
                 <form action="/add-to-cart" method="POST" style="display:flex; gap:6px; align-items:center;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="product_id" value="{{ product.id }}">
                     <input type="number" name="qty" value="1" min="1" max="99" style="width:55px; padding:6px 4px; border:1px solid #ccc; border-radius:4px; text-align:center; font-size:13px;">
                     <button type="submit" class="btn-add" style="flex:1;">أضف إلى السلة</button>
@@ -443,6 +485,7 @@ HTML_TEMPLATE = """
         <div class="auth-form" style="max-width:450px; margin:auto;">
             <h2>إنشاء حساب جديد</h2>
             <form action="/register" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" required></div>
                 <div class="form-group"><label>الاسم الأخير</label><input type="text" name="last_name" required></div>
                 <div class="form-group"><label>البريد الإلكتروني</label><input type="email" name="email" required></div>
@@ -459,6 +502,7 @@ HTML_TEMPLATE = """
         <div class="auth-form" style="max-width:500px; margin:auto;">
             <h2>👤 ملفي الشخصي وتعديل البيانات</h2>
             <form action="/profile" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" value="{{ current_user.first_name }}" required></div>
                 <div class="form-group"><label>الاسم الأخير</label><input type="text" name="last_name" value="{{ current_user.last_name }}" required></div>
                 <div class="form-group"><label>البريد الإلكتروني</label><input type="email" value="{{ current_user.email }}" disabled style="background:#eee;"></div>
@@ -472,6 +516,7 @@ HTML_TEMPLATE = """
             <hr style="margin:20px 0; border:none; border-top:1px solid #ddd;">
             <h3>🔒 تغيير كلمة المرور</h3>
             <form action="/profile/change-password" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group"><label>كلمة المرور الحالية</label><input type="password" name="current_password" required></div>
                 <div class="form-group"><label>كلمة المرور الجديدة</label><input type="password" name="new_password" required minlength="6"></div>
                 <div class="form-group"><label>تأكيد كلمة المرور الجديدة</label><input type="password" name="confirm_password" required minlength="6"></div>
@@ -494,6 +539,7 @@ HTML_TEMPLATE = """
                         <td>{{ item.price }} ج.م</td>
                         <td>
                             <form action="/cart/update-qty" method="POST" style="display:flex; gap:5px; align-items:center;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <input type="hidden" name="product_id" value="{{ item.id }}">
                                 <input type="number" name="qty" value="{{ item.qty }}" min="1" max="99" style="width:55px; padding:5px; border:1px solid #ccc; border-radius:4px; text-align:center;">
                                 <button type="submit" style="background:#232f3e; color:#fff; border:none; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px;">تحديث</button>
@@ -502,6 +548,7 @@ HTML_TEMPLATE = """
                         <td>{{ "%.2f"|format(item.price * item.qty) }} ج.م</td>
                         <td>
                             <form action="/cart/remove-item" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <input type="hidden" name="product_id" value="{{ item.id }}">
                                 <button type="submit" class="btn-danger" onclick="return confirm('حذف المنتج من السلة؟')">حذف</button>
                             </form>
@@ -513,6 +560,7 @@ HTML_TEMPLATE = """
             
             <div style="background:var(--card-bg); padding:15px; border-radius:8px; margin-bottom:15px; border:1px solid #ccc;">
                 <form action="/apply-coupon" method="POST" style="display:flex; gap:10px; align-items:center;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="text" name="coupon_code" placeholder="أدخل كود الخصم (مثال: {{ settings.coupon_code or 'Anything 10' }})" value="{{ session.get('applied_coupon', '') }}" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
                     <button type="submit" style="background:#232f3e; color:#fff; border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">تطبيق الكود</button>
                 </form>
@@ -533,6 +581,7 @@ HTML_TEMPLATE = """
             <div class="checkout-form">
                 <h3>تفاصيل الشحن والتسليم</h3>
                 <form action="/checkout" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="form-group"><label>رقم الهاتف للتواصل</label><input type="tel" name="phone" value="{{ current_user.phone or '' }}" required></div>
                     <div class="form-group"><label>عنوان التوصيل بالكامل</label><textarea name="address" rows="2" required>{{ current_user.address or '' }}</textarea></div>
                     <div class="form-group">
@@ -576,6 +625,7 @@ HTML_TEMPLATE = """
                     <button type="button" class="btn-add" disabled style="background:#ccc; border-color:#bbb; cursor:not-allowed; max-width:250px;">نفذت الكمية</button>
                 {% else %}
                 <form action="/add-to-cart" method="POST" style="display:flex; gap:8px; align-items:center; max-width:300px; margin-top:15px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="product_id" value="{{ product.id }}">
                     <input type="number" name="qty" value="1" min="1" max="99" style="width:70px; padding:9px; border:1px solid #ccc; border-radius:4px; text-align:center;">
                     <button type="submit" class="btn-add" style="flex:1;">أضف إلى السلة</button>
@@ -599,6 +649,7 @@ HTML_TEMPLATE = """
                 <div class="card-price">{{ product.price }} ج.م</div>
                 {% if not product.is_sold_out %}
                 <form action="/add-to-cart" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="product_id" value="{{ product.id }}">
                     <input type="hidden" name="qty" value="1">
                     <button type="submit" class="btn-add">أضف إلى السلة</button>
@@ -828,6 +879,7 @@ HTML_TEMPLATE = """
 
                 {% elif admin_section == 'categories' %}
                 <form action="/admin/add-category" method="POST" style="display:flex; gap:10px; margin-bottom:15px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="text" name="cat_name" placeholder="اسم القسم الجديد..." required style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px;">
                     <button type="submit" style="background:var(--primary-color); border:none; padding:8px 15px; border-radius:4px; font-weight:bold; cursor:pointer;">إضافة قسم</button>
                 </form>
@@ -835,6 +887,7 @@ HTML_TEMPLATE = """
                     {% for cat in custom_categories %}
                         <li style="display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid #eee;">
                             <form action="/admin/edit-category/{{ cat.id }}" method="POST" style="display:flex; gap:8px; flex:1; align-items:center;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                                 <input type="text" name="new_name" value="{{ cat.name }}" required style="padding:5px; border:1px solid #ccc; border-radius:4px; width:200px;">
                                 <button type="submit" class="btn-edit">تحديث الاسم</button>
                             </form>
@@ -845,6 +898,7 @@ HTML_TEMPLATE = """
 
                 {% elif admin_section == 'add-product' %}
                 <form action="/admin/add-product" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <div class="form-group"><label>اسم المنتج</label><input type="text" name="name" required></div>
                     <div class="form-group"><label>السعر (ج.م)</label><input type="number" step="0.01" name="price" required></div>
                     <div class="form-group"><label>القسم</label>
@@ -886,6 +940,7 @@ HTML_TEMPLATE = """
 
                 {% elif admin_section == 'homepage' %}
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="redirect_section" value="homepage">
                     <div class="form-group"><label>عنوان الترحيب في الصفحة الرئيسية</label><input type="text" name="welcome_title" value="{{ settings.welcome_title or '' }}"></div>
                     <div class="form-group"><label>نص الترحيب / الوصف تحت العنوان (السطر ده كله قابل للتعديل، تقدر تحذف أو تعدل ذكر كود الخصم منه براحتك)</label><textarea name="welcome_text" rows="3">{{ settings.welcome_text or '' }}</textarea></div>
@@ -900,6 +955,7 @@ HTML_TEMPLATE = """
 
                 {% elif admin_section == 'design' %}
                 <form action="/admin/update-settings" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="redirect_section" value="design">
                     <div class="form-group"><label>اسم الموقع</label><input type="text" name="site_name" value="{{ settings.site_name or 'Anything Shop' }}" required></div>
 
@@ -936,6 +992,7 @@ HTML_TEMPLATE = """
 
                 {% elif admin_section == 'extra-settings' %}
                 <form action="/admin/update-settings" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="redirect_section" value="extra-settings">
                     <h4 style="margin-top:0;">📞 بيانات التواصل والفوتر</h4>
                     <div class="form-group"><label>إيميل الدعم الفني (هيظهر تحت الموقع)</label><input type="email" name="support_email" value="{{ settings.support_email or '' }}" placeholder="support@example.com"></div>
@@ -975,6 +1032,7 @@ HTML_TEMPLATE = """
             </ul>
 
             <form action="/admin/order/{{ order.id }}" method="POST" style="margin-top:20px;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group"><label>كود الأوردر (تحطه إنت براحتك، مثلاً لربط الأوردر بنظام شحن خارجي)</label><input type="text" name="order_code" value="{{ order.order_code or '' }}" placeholder="مثال: ORD-1024"></div>
                 <div class="form-group"><label>ملاحظات الأدمن الداخلية على الأوردر</label><textarea name="admin_notes" rows="4" placeholder="أي تفاصيل أو وصف تحب تسجله على الأوردر ده...">{{ order.admin_notes or '' }}</textarea></div>
                 <button type="submit" class="btn-submit">حفظ كود الأوردر والملاحظات</button>
@@ -987,6 +1045,7 @@ HTML_TEMPLATE = """
             <h2>👤 بروفايل العميل #{{ customer.id }}</h2>
 
             <form action="/admin/customer/{{ customer.id }}/edit" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group"><label>الاسم الأول</label><input type="text" name="first_name" value="{{ customer.first_name }}" required></div>
                 <div class="form-group"><label>الاسم الأخير</label><input type="text" name="last_name" value="{{ customer.last_name }}" required></div>
                 <div class="form-group"><label>البريد الإلكتروني</label><input type="email" value="{{ customer.email }}" disabled style="background:#eee;"></div>
@@ -1014,6 +1073,7 @@ HTML_TEMPLATE = """
                 <h4 style="margin-top:0; color:#721c24;">⚠️ منطقة الخطر</h4>
                 <p style="font-size:12px; color:#721c24;">حذف الحساب هيمسح كل بياناته وطلباته ومحادثاته نهائياً، ومينفعش يترجع تاني.</p>
                 <form action="/admin/customer/{{ customer.id }}/delete" method="POST" onsubmit="return confirm('متأكد إنك عايز تحذف الحساب ده نهائياً مع كل طلباته؟')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button type="submit" class="btn-danger" style="padding:8px 16px;">🗑️ حذف الحساب نهائياً</button>
                 </form>
             </div>
@@ -1044,6 +1104,7 @@ HTML_TEMPLATE = """
         <div class="admin-card" style="max-width:500px; margin:auto;">
             <h2>✏️ تعديل المنتج #{{ edit_prod.id }}</h2>
             <form action="/admin/edit-product/{{ edit_prod.id }}" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group"><label>الاسم</label><input type="text" name="name" value="{{ edit_prod.name }}" required></div>
                 <div class="form-group"><label>السعر</label><input type="number" step="0.01" name="price" value="{{ edit_prod.price }}" required></div>
                 <div class="form-group"><label>القسم</label>
@@ -1078,6 +1139,7 @@ HTML_TEMPLATE = """
         <div class="auth-form" style="max-width:380px; margin:auto;">
             <h2>تسجيل الدخول</h2>
             <form action="/login" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group"><label>البريد الإلكتروني</label><input type="email" name="email" required></div>
                 <div class="form-group"><label>كلمة المرور</label><input type="password" name="password" required></div>
                 <button type="submit" class="btn-submit">تسجيل الدخول</button>
@@ -1168,6 +1230,7 @@ document.addEventListener("DOMContentLoaded", function() {
         if (!text) return;
         const fd = new FormData();
         fd.append('action', 'client_send');
+        fd.append('csrf_token', '{{ csrf_token }}');
         fd.append('session_id', sessionId);
         fd.append('message', text);
         fd.append('client_email', '{{ current_user.email }}');
@@ -1210,6 +1273,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 if (!text) return;
                 const fd = new FormData();
                 fd.append('action', 'admin_send');
+                fd.append('csrf_token', '{{ csrf_token }}');
                 fd.append('session_id', activeSession);
                 fd.append('message', text);
                 fetch('/api/chat/send', { method: 'POST', body: fd }).then(res => res.json()).then(data => {
@@ -1597,6 +1661,26 @@ def track_site_visits():
     except Exception:
         db.session.rollback()
 
+# --- حماية CSRF: نتأكد إن أي طلب POST جاي فعلاً من موقعنا مش من موقع تاني بيحاول يستغل جلسة المستخدم ---
+def get_csrf_token():
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_hex(24)
+    return session['csrf_token']
+
+CSRF_EXEMPT_PATHS = {
+    '/payment/webhook',      # نداء سيرفر-لسيرفر من Paymob، مش من متصفح المستخدم
+    '/payment/paypal/return',
+    '/payment/paypal/cancel',
+}
+
+@app.before_request
+def enforce_csrf_protection():
+    if request.method == "POST" and request.path not in CSRF_EXEMPT_PATHS:
+        form_token = request.form.get('csrf_token') or request.headers.get('X-CSRF-Token')
+        session_token = session.get('csrf_token')
+        if not session_token or not form_token or not secrets.compare_digest(str(session_token), str(form_token)):
+            return jsonify({"status": "error", "message": "csrf_token_invalid"}), 400
+
 # --- الإشعارات: عدد الحاجات الجديدة اللي محتاجة انتباه الأدمن أو العميل ---
 @app.context_processor
 def inject_notification_counts():
@@ -1620,8 +1704,10 @@ def inject_notification_counts():
         admin_notif_count=admin_notif_count,
         admin_unread_orders=admin_unread_orders,
         admin_unread_chats=admin_unread_chats,
-        customer_notif_count=customer_notif_count
+        customer_notif_count=customer_notif_count,
+        csrf_token=get_csrf_token()
     )
+
 
 # --- المسارات الأساسية ---
 @app.route("/")
@@ -1695,31 +1781,39 @@ def google_login():
 
 @app.route('/login/google/callback')
 def google_auth():
-    token = google.authorize_access_token()
-    user_info = token.get('userinfo')
-    if not user_info:
-        resp = google.get('userinfo')
-        user_info = resp.json()
-    
-    email = user_info.get('email')
-    first_name = user_info.get('given_name', 'Google')
-    last_name = user_info.get('family_name', 'User')
-    avatar = user_info.get('picture')
+    try:
+        token = google.authorize_access_token()
+        user_info = token.get('userinfo')
+        if not user_info:
+            resp = google.get('userinfo')
+            user_info = resp.json()
 
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        user = User(
-            first_name=first_name, last_name=last_name, email=email,
-            phone="01000000000", address="غير محدد", avatar_url=avatar, auth_provider='google'
-        )
-        db.session.add(user)
+        email = user_info.get('email')
+        first_name = user_info.get('given_name', 'Google')
+        last_name = user_info.get('family_name', 'User')
+        avatar = user_info.get('picture')
+
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            user = User(
+                first_name=first_name, last_name=last_name, email=email,
+                phone="01000000000", address="غير محدد", avatar_url=avatar, auth_provider='google'
+            )
+            db.session.add(user)
+            db.session.commit()
+
+        user.login_count = (user.login_count or 0) + 1
         db.session.commit()
 
-    user.login_count = (user.login_count or 0) + 1
-    db.session.commit()
-
-    login_user(user)
-    return redirect(url_for('home'))
+        login_user(user)
+        return redirect(url_for('home'))
+    except Exception as e:
+        # بدل ما يظهر للعميل صفحة "Internal Server Error" مخيفة، نوريه رسالة مفهومة
+        # ونطبع تفاصيل الخطأ في سجلات السيرفر عشان نقدر نشخّصه لو تكرر
+        print(f"[google_oauth] فشل تسجيل الدخول بجوجل: {type(e).__name__}: {e}")
+        db.session.rollback()
+        flash("تعذر تسجيل الدخول بواسطة جوجل. من فضلك حاول تاني، أو سجّل دخول بالإيميل وكلمة المرور.")
+        return redirect(url_for('login'))
 
 # --- مسارات الشات (مخصصة للمسجلين فقط) ---
 @app.route("/api/chat/send", methods=["POST"])
@@ -2454,12 +2548,22 @@ def admin_update_settings():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        user = User.query.filter_by(email=request.form.get("email")).first()
+        email = (request.form.get("email") or "").strip().lower()
+        rl_key = f"{request.remote_addr}:{email}"
+
+        if is_login_rate_limited(rl_key):
+            flash(f"عدد محاولات كتير غلط. من فضلك حاول تاني بعد {LOGIN_WINDOW_MINUTES} دقيقة.")
+            return render_template_string(HTML_TEMPLATE, page='login', cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
+
+        user = User.query.filter_by(email=email).first()
         if user and user.password_hash and check_password_hash(user.password_hash, request.form.get("password")):
+            clear_login_attempts(rl_key)
             user.login_count = (user.login_count or 0) + 1
             db.session.commit()
             login_user(user)
             return redirect(url_for('admin_panel' if user.is_admin else 'home'))
+
+        record_login_attempt(rl_key)
         flash("خطأ في البيانات.")
     return render_template_string(HTML_TEMPLATE, page='login', cart_count=get_cart_count(), categories_list=get_categories_list(), settings=get_settings())
 
@@ -2542,4 +2646,6 @@ with app.app_context():
     seed_data()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    # threaded=True بيخلي السيرفر يقدر يستقبل كذا زائر في نفس اللحظة (بدل واحد بس في المرة)
+    # من غير ما تحتاج تغيّر أي حاجة تانية في Render
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)), threaded=True)
